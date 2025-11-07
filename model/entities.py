@@ -87,7 +87,29 @@ class Inventory:
     #objets permanents
     def ajouter_perm(self, nom_objet):
         self.objets_permanents[nom_objet] = True
-
+LOOT_TABLE_CHEST=[
+    ("gemmes",1,0.35),
+    ("cles",1,0.40),
+    ("pieces",15,0.50),
+]
+LOOT_TABLE_CASIER=[
+    ("cles",1,0.60),
+    ('pieces',10,0.30),
+]
+LOOT_TABLE_DIG=[
+    ("pieces",8,0.50),
+    ("cles",1,0.20),
+    ("gemmes",1,0.20),
+]
+def _roll_loot(table):
+    "Returns a list of (resource, amount) according to independent probabilities. If nothing falls, gives consolation coins" 
+    out=[]
+    for name,amt,p in table:
+        if random.random()<p:
+            out.append((name,amt))
+    if not out:
+            out=[('pieces',5)]
+    return out   
 # -------------------------
 # Game-specific code
 # -------------------------
@@ -137,6 +159,9 @@ ROOM_CATALOG.extend([
     make_piece("Furnace", "furnace.png", {'up':False,'down':True,'left':True,'right':True}, 0, 2, None, "orange", {'on_draw': {'type':'inc_fire_weight'}}),
     make_piece("Bedroom", "bedroom.webp", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "purple", {'on_enter': {'type':'food','amount':10}}),
     make_piece("Empty", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 0, None, "blue", {}),
+    make_piece("Storage", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "orange",{'on_enter': {'type':'spawn','spawn':'chest'}}),
+    make_piece("Locker Room", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "orange",{'on_enter': {'type':'spawn','spawn':'casier'}}),    make_piece("Courtyard", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, 'edge', "green",{'on_enter': {'type':'spawn','spawn':'dig_site'}}),
+
 ])
 
 # multiplicity in initial deck (you can change)
@@ -175,7 +200,7 @@ class Cell:
         self.piece = None
         # doors stored as dict of lock level for each direction when created: 0/1/2
         self.doors = {'up':None,'down':None,'left':None,'right':None}
-
+        self.interactable=None #{'type: 'chest'|'casier'|'dig_site','opened':False}
 class Game:
     def __init__(self):
         self.deck = INITIAL_DECK[:]  # shallow copies of Piece references; removing an element prevents further draws
@@ -212,9 +237,25 @@ class Game:
     def door_lock_for_target_row(self, target_row):
         # higher doors more likely locked when target is at top rows.
         # linear mapping: bottom row -> 0, top row -> 2
-        t = (ROWS-1 - target_row) / (ROWS-1) if ROWS>1 else 0
-        lv = int(round(t*2))
-        return lv
+        if ROWS <=1:
+            return 0
+        #distance from 'grown', 0 in bottom, 1 on top
+        t = (ROWS-1 - target_row) / (ROWS-1) 
+        if target_row==ROWS-1:
+            return 0 #first row always 0
+        if target_row==0:
+            return 2 #last row always 0
+        p2=0.1+0.7*t
+        p0=0.7-0.6*t
+        p1=max(0.0,1.0-p0-p2)
+        r=random.random()
+        if r<p0:
+            return 0
+        elif r<p0+p1:
+            return 1
+        else:
+            return 2
+        
 
     def open_door_or_move(self, direction):
         tr, tc = self.neighbor_target(direction)
@@ -230,9 +271,11 @@ class Game:
                 lock = 0
             # if locked
             if lock>0:
+                opened=False
                 if self.inventory.objets_permanents.get("kit_de_crochetage") and lock==1:
                     # kit opens level 1 free
                     self.turn_msg = "Used kit to open a level 1 door."
+                    opened=True
                 elif self.inventory.objets_permanents.get("marteau") and lock<=2:
                     # hammer can act as key for chests; assume not for locking doors
                     pass
@@ -240,10 +283,19 @@ class Game:
                     if self.inventory.objets_consommables.get("cles",0) > 0:
                         self.inventory.retirer("cles",1)
                         self.turn_msg = "Used a key to open the door."
+                        opened=True
                     else:
                         # can't open
                         self.turn_msg = "Door is locked and you have no key/kit."
                         return
+                if opened:
+                    cur_cell=self.grid[self.player_r][self.player_c]
+                    ttr,ttc=tr,tc
+                    target_cell=self.grid[ttr][ttc]
+                    #lock level goes to 0 in both ways
+                    cur_cell.doors[direction]=0
+                    target_cell.doors[self.opposite(direction)]=0
+
             # moving consumes a step
             if self.inventory.objets_consommables["pas"]<=0:
                 self.turn_msg = "No steps left! You can't move."
@@ -293,6 +345,66 @@ class Game:
             self.turn_msg = "Choose a room (ENTER) or press R to redraw (spend a die)."
             return
 
+    def interact_current_cell(self):      
+        cell = self.grid[self.player_r][self.player_c]
+        it = cell.interactable
+        if not it or it.get("opened"):
+            self.turn_msg = "Nothing to interact with."
+            return
+
+        t = it.get("type")
+        used_key = False
+
+        if t == "chest":
+            # cle ou marteau
+            if self.inventory.objets_consommables.get("cles",0) > 0:
+                self.inventory.retirer("cles",1)
+                used_key = True
+            elif self.inventory.objets_permanents.get("marteau"):
+                pass  # marteau opens without wasting
+            else:
+                self.turn_msg = "A chest is here. You need a key or the hammer."
+                return
+            loot = _roll_loot(LOOT_TABLE_CHEST)
+            it["opened"] = True
+            self.turn_msg = "Chest opened"
+            for name, amt in loot:
+                self.inventory.ajouter_conso(name, amt)
+                self.turn_msg += f" → +{amt} {name}"
+
+        elif t == "casier":
+            # just key
+            if self.inventory.objets_consommables.get("cles",0) > 0:
+                self.inventory.retirer("cles",1)
+                used_key = True
+            else:
+                self.turn_msg = "A locker is here. You need a key."
+                return
+            loot = _roll_loot(LOOT_TABLE_CASIER)
+            it["opened"] = True
+            self.turn_msg = "Locker opened"
+            for name, amt in loot:
+                self.inventory.ajouter_conso(name, amt)
+                self.turn_msg += f" → +{amt} {name}"
+
+        elif t == "dig_site":
+            # requires pelle
+            if not self.inventory.objets_permanents.get("pelle"):
+                self.turn_msg = "You found a dig site. You need a shovel."
+                return
+            loot = _roll_loot(LOOT_TABLE_DIG)
+            it["opened"] = True
+            self.turn_msg = "You dug the site"
+            for name, amt in loot:
+                self.inventory.ajouter_conso(name, amt)
+                self.turn_msg += f" → +{amt} {name}"
+
+        else:
+            self.turn_msg = "Unknown interactable."
+            return
+
+
+
     def opposite(self, direction):
         return {'up':'down','down':'up','left':'right','right':'left'}[direction]
 
@@ -317,6 +429,13 @@ class Game:
                 self.running = False
             elif t == 'start':
                 self.turn_msg = "Back at the Entrance."
+            elif t=='spawn':
+                what=effects.get('spaw')
+                if what in ('chest','casier','dig_site'):
+                    if cell.interactable is None or not cell.interactable.get('opened',False):
+                        cell.interactable={'type':what,'opened':False}
+                        label={"chest":"a chest","casier":"a locker","dig_site":'a dig site'}[what]
+                        self.turn_msg=f"You found {label}! Press E to interact."
         else:
             self.turn_msg = f"Entered {p.nom}."
         # possibility to find gems or items randomly
@@ -396,18 +515,18 @@ class Game:
                 if fires:
                     self.deck.extend(random.choices(fires, k=2))
                     self.turn_msg = "Furnace makes furnace-like rooms more common in the deck."
+        
+        else:
+            self.turn_msg=f"Placed {choice.nom} at row {tr},lock={lock_level}"
+        
         # exit selection mode and enter the new room (move)
         self.selection_mode = False
         self.candidates = []
         self.selection_pos = 0
         self.target_cell = None
-        # consume 1 step to move into new room
-        if self.inventory.objets_consommables["pas"]<=0:
-            self.turn_msg += " No steps left to enter!"
-            return
-        self.inventory.retirer('pas',1)
-        self.player_r, self.player_c = tr,tc
-        self.on_enter(self.grid[tr][tc])
+
+        if direction:
+            self.open_door_or_move(direction)
 
     def redraw_candidates_spend_die(self):
         if self.inventory.objets_consommables.get('des',0) <= 0:
@@ -482,6 +601,15 @@ def draw_game(screen, game):
             # draw player
             if (r,c)==(game.player_r, game.player_c):
                 pygame.draw.rect(screen, (255,255,0), rect, 3)
+                    # interactable indicator (chest, casier or dig site)
+                    # indicador de interactuable (cofre, casier o punto de excavación)
+            if cell.interactable and not cell.interactable.get("opened"):
+                tag = cell.interactable["type"]
+                emoji = {"chest": "🧰", "casier": "🔒", "dig_site": "⛏️"}.get(tag, "?")
+                badge = EMOJI_FONT.render(emoji, True, (255, 255, 255))
+                # esquina superior derecha de la celda
+                screen.blit(badge, (rect.right - 24, rect.top))
+
             # draw door lock marker (if doors set)
             cell_doors = cell.doors
             for i,dir in enumerate(['up','left','right','down']):
@@ -597,10 +725,12 @@ def game_loop():
                         game.open_door_or_move('left')
                     elif ev.key in (pygame.K_d, pygame.K_RIGHT):
                         game.open_door_or_move('right')
+                    elif ev.key==pygame.K_e:
+                        game.interact_current_cell
                     elif ev.key == pygame.K_i:
                         # toggle inventory? (we always show)
                         pass
-
+                    
         # check lose condition
         if game.inventory.objets_consommables.get('pas',0) <= 0:
             game.turn_msg = "You ran out of steps! Game Over."
