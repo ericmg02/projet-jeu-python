@@ -167,7 +167,7 @@ class Casier(Interactable):
         if self.opened:
             game.turn_msg = "The locker is empty."
             return
-        # sólo llave
+        # just key
         if game.inventory.objets_consommables.get("cles", 0) > 0:
             game.inventory.retirer("cles", 1)
         else:
@@ -294,6 +294,10 @@ class Cell:
         # doors stored as dict of lock level for each direction when created: 0/1/2
         self.doors = {'up':None,'down':None,'left':None,'right':None}
         self.interactable=None #type interactable or None
+
+DIRS = {'up':(-1,0), 'down':(1,0), 'left':(0,-1), 'right':(0,1)}
+OPP  = {'up':'down','down':'up','left':'right','right':'left'}
+
 class Game:
     def __init__(self):
         self.deck = INITIAL_DECK[:]  # shallow copies of Piece references; removing an element prevents further draws
@@ -318,6 +322,33 @@ class Game:
 
     def in_bounds(self, r,c):
         return 0<=r<ROWS and 0<=c<COLS
+    
+    def can_place_piece(self, piece, tr, tc, from_dir):
+    # 1) la piece doit avoir un port vers l'origin
+        if not piece.ports.get(OPP[from_dir], False):
+            return False
+
+        # 2) aucune port peuve sortir du tableau
+        for d,(dr,dc) in DIRS.items():
+            if piece.ports.get(d, False):
+                nr, nc = tr+dr, tc+dc
+                if not self.in_bounds(nr, nc):
+                    return False
+
+        # 3) compatibilité avec les voisins qui sont déjà placées
+        for d,(dr,dc) in DIRS.items():
+            nr, nc = tr+dr, tc+dc
+            if self.in_bounds(nr, nc):
+                neigh = self.grid[nr][nc].piece
+                if neigh is not None:
+                    # si la piece a une port vers le voisin, le voisin doit avoir un porte vers elle
+                    if piece.ports.get(d, False) and not neigh.ports.get(OPP[d], False):
+                        return False
+                    # si le voisin a une porte donnant sur cette pièce, celle-ci doit renvoyer la porte
+                    if neigh.ports.get(OPP[d], False) and not piece.ports.get(d, False):
+                        return False
+        return True
+
 
     def neighbor_target(self, direction):
         dr,dc = 0,0
@@ -398,17 +429,33 @@ class Game:
             self.on_enter(cell)
             return
         else:
+            
+            dr = tr - self.player_r
+            dc = tc - self.player_c
+            dir_map = {(-1,0):'up',(1,0):'down',(0,-1):'left',(0,1):'right'}
+            direction = dir_map.get((dr,dc))
+
             # need to draw room candidates and select
             # before draw: compute possible pieces that satisfy placement condition
             valid_pool = []
             for p in self.deck:
-                # check placement condition
+                
                 if p.cond_deplac == 'edge':
-                    # allow only if target is at border
-                    if tr in (0, ROWS-1) or tc in (0, COLS-1):
-                        valid_pool.append(p)
+                    if tr not in (0, ROWS-1) and tc not in (0, COLS-1):
+                        continue
+                
+                if direction and self.can_place_piece(p, tr, tc, direction):
+                    valid_pool.append(p)
+
                 else:
                     valid_pool.append(p)
+
+            
+            gems = self.inventory.objets_consommables.get('gemmes', 0)
+            affordable = [x for x in valid_pool if x.cout == 0 or x.cout <= gems]
+            if affordable:
+                valid_pool = affordable
+           
             # ensure at least one candidate with gem cost 0
             # draw weighted sample (3)
             cands = weighted_sample_no_replacement(valid_pool, 10)  # sample many then pick a subset ensuring gem cost 0
@@ -594,6 +641,12 @@ class Game:
                 valid_pool.append(p)
         if not valid_pool:
             valid_pool = self.deck[:]
+
+        gems = self.inventory.objets_consommables.get('gemmes', 0)
+        affordable = [x for x in valid_pool if x.cout == 0 or x.cout <= gems]
+        if affordable:
+            valid_pool = affordable
+        
         self.candidates = weighted_sample_no_replacement(valid_pool, 3)
         # ensure a zero-cost candidate exists if possible
         if not any(x.cout==0 for x in self.candidates):
@@ -602,6 +655,41 @@ class Game:
                 self.candidates[-1] = random.choice(zeroes)
         self.selection_pos = 0
         self.turn_msg = "Redrew candidates (spent a die)."
+
+    def has_legal_moves(self):
+        gems = self.inventory.objets_consommables.get('gemmes', 0)
+        keys = self.inventory.objets_consommables.get('cles', 0)
+        has_kit = self.inventory.objets_permanents.get('kit_de_crochetage', False)
+
+        for d,(dr,dc) in DIRS.items():
+            tr, tc = self.player_r + dr, self.player_c + dc
+            if not self.in_bounds(tr, tc):
+                continue
+            cell = self.grid[tr][tc]
+
+            # a) mouvement vers une piece, est ce que je peut ouvrir la porte?
+            if cell.piece is not None:
+                lock = cell.doors.get(OPP[d])
+                lock = 0 if lock is None else lock
+                if lock == 0:
+                    return True
+                if lock == 1 and (has_kit or keys > 0):
+                    return True
+                if lock == 2 and keys > 0:
+                    return True
+
+            # b) Aménagement d'une nouvelle salle : existe-t-il une pièce valable/abordable ?
+            else:
+                
+                for p in self.deck:
+                    if p.cond_deplac == 'edge' and (tr not in (0, ROWS-1) and tc not in (0, COLS-1)):
+                        continue
+                    if not self.can_place_piece(p, tr, tc, d):
+                        continue
+                    if p.cout == 0 or p.cout <= gems:
+                        return True
+
+        return False
 
 # -------------------------
 # Pygame rendering
@@ -782,6 +870,9 @@ def game_loop():
         if game.inventory.objets_consommables.get('pas',0) <= 0:
             game.turn_msg = "You ran out of steps! Game Over."
             game.running = False
+        elif not game.selection_mode and not game.has_legal_moves():
+            game.turn_msg = "Bloqué – plus de coup légal. Game Over."
+            game.running = False
 
         # draw
         draw_game(screen, game)
@@ -793,5 +884,10 @@ def game_loop():
             pygame.quit()
             return
 
+
 if __name__ == "__main__":
-    game_loop()
+    game_loop()      # arranca el juego normal
+
+
+
+
