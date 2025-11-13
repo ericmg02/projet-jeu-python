@@ -113,8 +113,8 @@ def _roll_loot(table):
 # -------------------------
 # Game-specific code
 # -------------------------
-CELL_W = 100   # ← was 80
-CELL_H = 100   # ← was 80
+CELL_W = 70   # à changer si trop grand pour ton écran
+CELL_H = 70   # à changer si trop grand pour ton écran
 ROWS = 9
 COLS = 5
 WINDOW_W = COLS*CELL_W + 400   # more space for inventory
@@ -430,7 +430,7 @@ class Game:
             elif t == 'start':
                 self.turn_msg = "Back at the Entrance."
             elif t=='spawn':
-                what=effects.get('spaw')
+                what=effects.get('spawn')
                 if what in ('chest','casier','dig_site'):
                     if cell.interactable is None or not cell.interactable.get('opened',False):
                         cell.interactable={'type':what,'opened':False}
@@ -726,7 +726,7 @@ def game_loop():
                     elif ev.key in (pygame.K_d, pygame.K_RIGHT):
                         game.open_door_or_move('right')
                     elif ev.key==pygame.K_e:
-                        game.interact_current_cell
+                        game.interact_current_cell()
                     elif ev.key == pygame.K_i:
                         # toggle inventory? (we always show)
                         pass
