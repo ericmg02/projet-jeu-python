@@ -75,12 +75,36 @@ class Inventory:
     #methodes
     #objets consommables
     def ajouter_conso(self, nom_objet, quantitee):
+        """Ajoute (ou crée) une quantité pour un consommable.
+
+        Si le consommable existe, incrémente sa quantité ; sinon, crée l'entrée
+        avec la quantité indiquée.
+
+        Args:
+            nom_objet: Nom du consommable (ex. "cles", "gemmes").
+            quantitee: Quantité à ajouter (>= 0).
+
+        Returns:
+            None
+        """   
         if nom_objet in self.objets_consommables:
             self.objets_consommables[nom_objet] += quantitee
         else:
             self.objets_consommables[nom_objet] = quantitee
 
     def retirer(self, nom_objet, quantitee):
+        """Retire une quantité d'un consommable s'il y a assez de stock.
+
+            Vérifie la quantité disponible et ne décrémente que si elle est suffisante.
+
+            Args:
+                nom_objet: Nom du consommable à débiter.
+                quantitee: Quantité à retirer (> 0).
+
+            Returns:
+                bool: True si le retrait a été effectué ; False sinon (stock insuffisant
+                ou consommable inexistant).
+        """
         if self.objets_consommables.get(nom_objet, 0) >= quantitee:
             self.objets_consommables[nom_objet] -= quantitee
             return True
@@ -88,6 +112,17 @@ class Inventory:
 
     #objets permanents
     def ajouter_perm(self, nom_objet):
+        """Ajoute/active un objet permanent dans l'inventaire.
+
+        Marque l'objet permanent comme disponible (True). Si la clé n'existait pas,
+        elle est créée.
+
+        Args:
+            nom_objet: Nom de l'objet permanent (ex. "pelle", "marteau").
+
+        Returns:
+            None
+        """  
         self.objets_permanents[nom_objet] = True
 
 LOOT_TABLE_CHEST=[
@@ -115,6 +150,26 @@ def _roll_loot(table):
     return out   
 
 class Interactable(ABC):
+    """Classe abstraite représentant un élément interactif dans le manoir.
+
+        Cette classe définit l’interface commune pour tous les objets avec lesquels
+        le joueur peut interagir (coffres, casiers, sites de fouille, etc.).  
+        Chaque sous-classe doit préciser un `label`, un symbole visuel (`emoji`)
+        et la logique de l’interaction (`interact`).
+
+        Attributs:
+            opened (bool): Indique si l’objet a déjà été ouvert/utilisé.
+                        Par défaut à False.
+
+        Méthodes abstraites:
+            label() -> str:
+                Retourne le nom descriptif de l’objet (ex. "un coffre").
+            emoji() -> str:
+                Retourne un caractère ou emoji représentant visuellement l’objet.
+            interact(game, cell):
+                Définit le comportement lorsque le joueur interagit avec l’objet.
+                Doit être implémentée par les sous-classes.
+        """
     def __init__(self):
         self.opened=False
     @abstractmethod
@@ -138,7 +193,7 @@ class Chest(Interactable):
         if self.opened:
             game.turn_msg = "The chest is empty."
             return
-        # llave o martillo
+        # cle ou marteau
         if game.inventory.objets_consommables.get("cles", 0) > 0:
             game.inventory.retirer("cles", 1)
             msg = "Used a key to open the chest."
@@ -289,6 +344,24 @@ def weighted_sample_no_replacement(pool, k):
 
 # Game state containers
 class Cell:
+    """Représente une case du plateau de jeu.
+
+        Chaque cellule peut contenir une pièce de type `Piece`, un ensemble de portes
+        (avec leurs niveaux de verrou), et éventuellement un objet interactif
+        (`Interactable`) comme un coffre, un casier ou un site de fouille.
+
+        Attributs:
+            piece (Piece | None): La pièce placée sur cette case, ou None si vide.
+            doors (dict[str, int | None]): Dictionnaire des portes adjacentes,
+                associant chaque direction ('up','down','left','right') à un niveau
+                de verrou :
+                    - 0 : porte ouverte
+                    - 1 : verrou faible
+                    - 2 : verrou fort
+                    - None : pas de porte
+            interactable (Interactable | None): Objet interactif présent sur la case,
+                ou None s’il n’y en a pas.
+        """    
     def __init__(self):
         self.piece = None
         # doors stored as dict of lock level for each direction when created: 0/1/2
@@ -299,6 +372,36 @@ DIRS = {'up':(-1,0), 'down':(1,0), 'left':(0,-1), 'right':(0,1)}
 OPP  = {'up':'down','down':'up','left':'right','right':'left'}
 
 class Game:
+    """Boucle et état principal du jeu « Blue Prince ».
+        Cette classe orchestre la pioche/placement des pièces, le déplacement
+        du joueur sur la grille, la gestion des portes/verrous, l’inventaire,
+        ainsi que les interactions avec les éléments interactifs (coffre, casier,
+        site de fouille). Elle maintient tout l’état nécessaire au rendu Pygame.
+    
+    Attributs:
+        deck (list[Piece]): Pioche courante (copies superficielles des pièces définies dans le catalogue), mélangée au démarrage.
+
+        grid (list[list[Cell]]): Grille de cellules (ROWS x COLS) contenant éventuellement une `Piece`, des portes et un interactif.
+
+        player_r (int): Ligne actuelle du joueur dans la grille.
+
+        player_c (int): Colonne actuelle du joueur dans la grille.
+
+        inventory (Inventory): Inventaire du joueur (consommables et permanents).
+
+        turn_msg (str): Message court de feedback affiché à l’écran.
+
+        selection_mode (bool): True si on est en mode « choix de salle ».
+
+        candidates (list[Piece]): Liste de pièces candidates lors d’un placement.
+
+        selection_pos (int): Index de la pièce sélectionnée dans `candidates`.
+
+        target_cell (tuple[int,int] | None): Coordonnées (r,c) de la cellule ciblée lors d’un placement, sinon None.
+
+        running (bool): Indique si la partie est en cours (pour terminer proprement la boucle de jeu).
+    
+    """    
     def __init__(self):
         self.deck = INITIAL_DECK[:]  # shallow copies of Piece references; removing an element prevents further draws
         random.shuffle(self.deck)
@@ -321,9 +424,34 @@ class Game:
         self.running = True
 
     def in_bounds(self, r,c):
+        """Vérifie si des coordonnées sont dans les limites de la grille.
+
+        Args:
+            r: Index de ligne.
+            c: Index de colonne.
+
+        Returns:
+            True si (r, c) est à l’intérieur du plateau ; False sinon.
+        """    
         return 0<=r<ROWS and 0<=c<COLS
     
     def can_place_piece(self, piece, tr, tc, from_dir):
+        """Teste si une pièce peut être placée en (tr, tc) en respectant les règles.
+
+        Règles vérifiées :
+        1) La pièce doit avoir un port vers la case d’origine (direction opposée).
+        2) Aucun port de la pièce ne doit sortir du plateau.
+        3) Compatibilité des ports avec les voisins déjà posés (réciprocité).
+
+        Args:
+            piece: La pièce candidate.
+            tr: Ligne cible.
+            tc: Colonne cible.
+            from_dir: Direction depuis laquelle on arrive ('up','down','left','right').
+
+        Returns:
+            True si le placement est légal ; False sinon.
+        """ 
     # 1) la piece doit avoir un port vers l'origin
         if not piece.ports.get(OPP[from_dir], False):
             return False
@@ -351,6 +479,14 @@ class Game:
 
 
     def neighbor_target(self, direction):
+        """Renvoie la case voisine à partir de la position du joueur.
+
+            Args:
+                direction: 'up', 'down', 'left' ou 'right'.
+
+            Returns:
+                Un tuple (r, c) des coordonnées de la case voisine.
+        """
         dr,dc = 0,0
         if direction=='up': dr=-1
         if direction=='down': dr=1
@@ -359,7 +495,17 @@ class Game:
         return self.player_r+dr, self.player_c+dc
 
     def door_lock_for_target_row(self, target_row):
-        # higher doors more likely locked when target is at top rows.
+        """Calcule un niveau de verrou (0/1/2) selon la ligne cible.
+
+        Les portes ont plus de chances d’être verrouillées en haut du plateau.
+
+        Args:
+            target_row: Index de ligne de la case cible.
+
+        Returns:
+            int: 0 (déverrouillée), 1 (verrou faible), ou 2 (verrou fort).
+        
+        """
         # linear mapping: bottom row -> 0, top row -> 2
         if ROWS <=1:
             return 0
@@ -382,6 +528,18 @@ class Game:
         
 
     def open_door_or_move(self, direction):
+        """Ouvre une porte et se déplace, ou lance la sélection d’une nouvelle salle.
+
+        Si la case voisine contient déjà une pièce, tente d’ouvrir la porte selon
+        l’inventaire (clé/kit) puis consomme un pas et entre dans la salle.
+        Sinon, passe en mode sélection et propose des pièces valides à placer.
+
+        Args:
+            direction: Direction du mouvement ('up','down','left','right').
+
+        Returns:
+            None
+        """
         tr, tc = self.neighbor_target(direction)
         if not self.in_bounds(tr,tc):
             self.turn_msg = "A wall. Can't go there."
@@ -486,6 +644,13 @@ class Game:
             return
 
     def interact_current_cell(self):
+        """Déclenche l’interaction avec l’objet interactif de la case courante.
+
+            Met à jour `turn_msg` selon le résultat.
+
+            Returns:
+                None
+        """
         cell = self.grid[self.player_r][self.player_c]
         it = cell.interactable
         if not isinstance(it, Interactable):
@@ -494,10 +659,28 @@ class Game:
         it.interact(self, cell)
 
     def opposite(self, direction):
+        """Donne la direction opposée à celle fournie.
+
+        Args:
+            direction: 'up','down','left' ou 'right'.
+
+        Returns:
+            La direction opposée ('down','up','right' ou 'left').
+        """
         return {'up':'down','down':'up','left':'right','right':'left'}[direction]
 
     def on_enter(self, cell):
-        # process on_enter effects if any
+        """Applique les effets d’entrée d’une salle et événements aléatoires.
+
+        Traite les effets 'on_enter' (pièces, nourriture, victoire, spawn d’objets
+        interactifs, etc.) et les trouvailles aléatoires, puis met à jour `turn_msg`.
+
+        Args:
+            cell: La cellule dans laquelle le joueur vient d’entrer.
+
+        Returns:
+            None
+        """
         p = cell.piece
         if not p:
             return
@@ -562,6 +745,15 @@ class Game:
                 self.turn_msg += " Found 3 steps."
 
     def confirm_selection(self):
+        """Confirme la pièce choisie, la pose et gère les effets associés.
+
+        Débite le coût en gemmes si nécessaire, place la pièce, initialise le niveau
+        de verrou des portes, applique les effets 'on_draw', puis tente d’entrer
+        dans la nouvelle salle.
+
+        Returns:
+            None
+        """
         if not self.selection_mode or not self.target_cell:
             return
         index = self.selection_pos
@@ -630,6 +822,14 @@ class Game:
             self.open_door_or_move(direction)
 
     def redraw_candidates_spend_die(self):
+        """Repioche des pièces candidates en dépensant un dé.
+
+        Respecte les contraintes de placement et, si possible, assure au moins
+        une option à coût nul. Met à jour `turn_msg`.
+
+        Returns:
+            None
+        """
         if self.inventory.objets_consommables.get('des',0) <= 0:
             self.turn_msg = "No dice to spend."
             return
@@ -664,6 +864,15 @@ class Game:
         self.turn_msg = "Redrew candidates (spent a die)."
 
     def has_legal_moves(self):
+        """Indique s’il reste au moins un coup légal.
+
+        Un coup légal est soit :
+        - entrer par une porte voisine ouvrable (déverrouillée/ouvrable avec clé/kit),
+        - soit placer une pièce compatible et abordable sur une case adjacente.
+
+        Returns:
+            True s’il existe un coup légal ; False sinon.
+        """
         gems = self.inventory.objets_consommables.get('gemmes', 0)
         keys = self.inventory.objets_consommables.get('cles', 0)
         has_kit = self.inventory.objets_permanents.get('kit_de_crochetage', False)
@@ -714,6 +923,36 @@ except:
         EMOJI_FONT = pygame.font.SysFont("Arial", 18)
 
 def draw_game(screen, game):
+    """Rend l’état courant du jeu sur l’écran Pygame.
+
+    Dessine le plateau (grille de cellules), le joueur, les portes avec leur
+    niveau de verrou, les pièces (image ou placeholder coloré), les badges
+    d’objets interactifs (emoji), ainsi que le panneau latéral droit contenant
+    l’inventaire (consommables et permanents) et l’historique de messages.
+    Si `game.selection_mode` est actif, affiche une surcouche avec la liste
+    de pièces candidates à placer et surbrille la sélection.
+
+    Args:
+        screen: Surface Pygame cible sur laquelle dessiner.
+        game: Instance de `Game` dont l’état (grille, inventaire, messages,
+            sélection, etc.) est utilisé pour le rendu.
+
+    Returns:
+        None
+
+    Notes:
+        - Les dimensions de cellules/plateau sont déterminées par les constantes
+          globales (`CELL_W`, `CELL_H`, `ROWS`, `COLS`) et par la taille de fenêtre.
+        - Les images des pièces sont chargées via `load_image(...)`. En cas d’échec,
+          un rectangle coloré et le nom abrégé de la pièce sont affichés.
+        - Les niveaux de portes sont indiqués par des pastilles colorées :
+            0 → gris (ouvert), 1 → orange (verrou faible), 2 → rouge (verrou fort).
+        - Les objets interactifs non ouverts affichent un petit emoji dans le coin
+          supérieur droit de la cellule.
+        - En mode sélection, une couche semi-transparente et un panneau central
+          listent jusqu’à trois candidats avec coût/rareté, et encadrent l’option
+          courante.
+        """
     screen.fill((30,30,30))
     # grid
     ox = 20
@@ -834,6 +1073,21 @@ def draw_game(screen, game):
                 pygame.draw.rect(screen, (255,255,0), crect, 3)
 
 def game_loop():
+    """Boucle principale Pygame : gestion des événements, rendu et cycle de jeu.
+
+    Initialise la fenêtre, l’horloge et l’état `Game`, puis:
+      - traite les événements clavier (déplacement, interaction, sélection,
+        relance des candidats, inventaire, sortie avec ESC),
+      - met à jour les messages/état de fin (plus de pas, absence de coups légaux),
+      - dessine l’interface via `draw_game(...)`,
+      - limite la cadence d’affichage (clock.tick(30)).
+
+    La boucle se termine proprement en cas de fermeture de la fenêtre, pression
+    d’ESC, ou quand `game.running` devient False (Game Over / victoire).
+
+    Returns:
+        None
+    """
     screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
     pygame.display.set_caption("Blue Prince - simplified")
     clock = pygame.time.Clock()
