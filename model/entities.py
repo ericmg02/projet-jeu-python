@@ -206,8 +206,8 @@ class DigSite(Interactable):
 # -------------------------
 # Game-specific code
 # -------------------------
-CELL_W = 100   # ← was 80
-CELL_H = 100   # ← was 80
+CELL_W = 70   # à changer si trop grand pour ton écran
+CELL_H = 70   # à changer si trop grand pour ton écran
 ROWS = 9
 COLS = 5
 WINDOW_W = COLS*CELL_W + 400   # more space for inventory
@@ -530,6 +530,13 @@ class Game:
                     cell.interactable = DigSite()
                 if cell.interactable:
                     self.turn_msg = f"You found {cell.interactable.label()}! Press E to interact."
+            elif t=='spawn':
+                what=effects.get('spawn')
+                if what in ('chest','casier','dig_site'):
+                    if cell.interactable is None or not cell.interactable.get('opened',False):
+                        cell.interactable={'type':what,'opened':False}
+                        label={"chest":"a chest","casier":"a locker","dig_site":'a dig site'}[what]
+                        self.turn_msg=f"You found {label}! Press E to interact."
         else:
             self.turn_msg = f"Entered {p.nom}."
         # possibility to find gems or items randomly
