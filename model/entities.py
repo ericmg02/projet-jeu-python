@@ -12,6 +12,8 @@ import pygame
 import random
 import os
 from collections import defaultdict
+from abc import ABC,abstractmethod
+
 
 # -------------------------
 # Provided base classes (kept and slightly adapted)
@@ -87,6 +89,7 @@ class Inventory:
     #objets permanents
     def ajouter_perm(self, nom_objet):
         self.objets_permanents[nom_objet] = True
+
 LOOT_TABLE_CHEST=[
     ("gemmes",1,0.35),
     ("cles",1,0.40),
@@ -110,6 +113,96 @@ def _roll_loot(table):
     if not out:
             out=[('pieces',5)]
     return out   
+
+class Interactable(ABC):
+    def __init__(self):
+        self.opened=False
+    @abstractmethod
+    def label(self)-> str:
+        pass
+    @abstractmethod
+    def emoji(self)-> str:
+        pass
+    @abstractmethod
+    def interact(self,game,cell):
+        pass
+
+class Chest(Interactable):
+    def label(self) -> str:
+        return "a chest"
+
+    def emoji(self) -> str:
+        return "🧰"
+
+    def interact(self, game, cell):
+        if self.opened:
+            game.turn_msg = "The chest is empty."
+            return
+        # llave o martillo
+        if game.inventory.objets_consommables.get("cles", 0) > 0:
+            game.inventory.retirer("cles", 1)
+            msg = "Used a key to open the chest."
+        elif game.inventory.objets_permanents.get("marteau"):
+            msg = "Used the hammer to smash the chest."
+        else:
+            game.turn_msg = "A chest is here. You need a key or the hammer."
+            return
+
+        loot = _roll_loot(LOOT_TABLE_CHEST)
+        self.opened = True
+        game.turn_msg = msg
+        for name, amt in loot:
+            game.inventory.ajouter_conso(name, amt)
+            game.turn_msg += f" → +{amt} {name}"
+
+
+class Casier(Interactable):
+    def label(self) -> str:
+        return "a locker"
+
+    def emoji(self) -> str:
+        return "🔒"
+
+    def interact(self, game, cell):
+        if self.opened:
+            game.turn_msg = "The locker is empty."
+            return
+        # sólo llave
+        if game.inventory.objets_consommables.get("cles", 0) > 0:
+            game.inventory.retirer("cles", 1)
+        else:
+            game.turn_msg = "A locker is here. You need a key."
+            return
+
+        loot = _roll_loot(LOOT_TABLE_CASIER)
+        self.opened = True
+        game.turn_msg = "Locker opened"
+        for name, amt in loot:
+            game.inventory.ajouter_conso(name, amt)
+            game.turn_msg += f" → +{amt} {name}"
+
+
+class DigSite(Interactable):
+    def label(self) -> str:
+        return "a dig site"
+
+    def emoji(self) -> str:
+        return "⛏️"
+
+    def interact(self, game, cell):
+        if self.opened:
+            game.turn_msg = "Nothing left to dig here."
+            return
+        if not game.inventory.objets_permanents.get("pelle"):
+            game.turn_msg = "You found a dig site. You need a shovel."
+            return
+
+        loot = _roll_loot(LOOT_TABLE_DIG)
+        self.opened = True
+        game.turn_msg = "You dug the site"
+        for name, amt in loot:
+            game.inventory.ajouter_conso(name, amt)
+            game.turn_msg += f" → +{amt} {name}"
 # -------------------------
 # Game-specific code
 # -------------------------
@@ -200,7 +293,7 @@ class Cell:
         self.piece = None
         # doors stored as dict of lock level for each direction when created: 0/1/2
         self.doors = {'up':None,'down':None,'left':None,'right':None}
-        self.interactable=None #{'type: 'chest'|'casier'|'dig_site','opened':False}
+        self.interactable=None #type interactable or None
 class Game:
     def __init__(self):
         self.deck = INITIAL_DECK[:]  # shallow copies of Piece references; removing an element prevents further draws
@@ -345,65 +438,13 @@ class Game:
             self.turn_msg = "Choose a room (ENTER) or press R to redraw (spend a die)."
             return
 
-    def interact_current_cell(self):      
+    def interact_current_cell(self):
         cell = self.grid[self.player_r][self.player_c]
         it = cell.interactable
-        if not it or it.get("opened"):
+        if not isinstance(it, Interactable):
             self.turn_msg = "Nothing to interact with."
             return
-
-        t = it.get("type")
-        used_key = False
-
-        if t == "chest":
-            # cle ou marteau
-            if self.inventory.objets_consommables.get("cles",0) > 0:
-                self.inventory.retirer("cles",1)
-                used_key = True
-            elif self.inventory.objets_permanents.get("marteau"):
-                pass  # marteau opens without wasting
-            else:
-                self.turn_msg = "A chest is here. You need a key or the hammer."
-                return
-            loot = _roll_loot(LOOT_TABLE_CHEST)
-            it["opened"] = True
-            self.turn_msg = "Chest opened"
-            for name, amt in loot:
-                self.inventory.ajouter_conso(name, amt)
-                self.turn_msg += f" → +{amt} {name}"
-
-        elif t == "casier":
-            # just key
-            if self.inventory.objets_consommables.get("cles",0) > 0:
-                self.inventory.retirer("cles",1)
-                used_key = True
-            else:
-                self.turn_msg = "A locker is here. You need a key."
-                return
-            loot = _roll_loot(LOOT_TABLE_CASIER)
-            it["opened"] = True
-            self.turn_msg = "Locker opened"
-            for name, amt in loot:
-                self.inventory.ajouter_conso(name, amt)
-                self.turn_msg += f" → +{amt} {name}"
-
-        elif t == "dig_site":
-            # requires pelle
-            if not self.inventory.objets_permanents.get("pelle"):
-                self.turn_msg = "You found a dig site. You need a shovel."
-                return
-            loot = _roll_loot(LOOT_TABLE_DIG)
-            it["opened"] = True
-            self.turn_msg = "You dug the site"
-            for name, amt in loot:
-                self.inventory.ajouter_conso(name, amt)
-                self.turn_msg += f" → +{amt} {name}"
-
-        else:
-            self.turn_msg = "Unknown interactable."
-            return
-
-
+        it.interact(self, cell)
 
     def opposite(self, direction):
         return {'up':'down','down':'up','left':'right','right':'left'}[direction]
@@ -429,13 +470,19 @@ class Game:
                 self.running = False
             elif t == 'start':
                 self.turn_msg = "Back at the Entrance."
-            elif t=='spawn':
-                what=effects.get('spaw')
-                if what in ('chest','casier','dig_site'):
-                    if cell.interactable is None or not cell.interactable.get('opened',False):
-                        cell.interactable={'type':what,'opened':False}
-                        label={"chest":"a chest","casier":"a locker","dig_site":'a dig site'}[what]
-                        self.turn_msg=f"You found {label}! Press E to interact."
+            elif t == 'spawn':
+                what = effects.get('spawn')
+                if isinstance(cell.interactable, Interactable) and not cell.interactable.opened:
+                    # ya hay algo aquí sin abrir, no lo pisamos
+                    return
+                if what == 'chest':
+                    cell.interactable = Chest()
+                elif what == 'casier':
+                    cell.interactable = Casier()
+                elif what == 'dig_site':
+                    cell.interactable = DigSite()
+                if cell.interactable:
+                    self.turn_msg = f"You found {cell.interactable.label()}! Press E to interact."
         else:
             self.turn_msg = f"Entered {p.nom}."
         # possibility to find gems or items randomly
@@ -601,14 +648,13 @@ def draw_game(screen, game):
             # draw player
             if (r,c)==(game.player_r, game.player_c):
                 pygame.draw.rect(screen, (255,255,0), rect, 3)
-                    # interactable indicator (chest, casier or dig site)
-                    # indicador de interactuable (cofre, casier o punto de excavación)
-            if cell.interactable and not cell.interactable.get("opened"):
-                tag = cell.interactable["type"]
-                emoji = {"chest": "🧰", "casier": "🔒", "dig_site": "⛏️"}.get(tag, "?")
+
+            # interactable indicator (chest, casier or dig site)
+            if isinstance(cell.interactable, Interactable) and not cell.interactable.opened:
+                emoji = cell.interactable.emoji()
                 badge = EMOJI_FONT.render(emoji, True, (255, 255, 255))
-                # esquina superior derecha de la celda
                 screen.blit(badge, (rect.right - 24, rect.top))
+
 
             # draw door lock marker (if doors set)
             cell_doors = cell.doors
@@ -658,7 +704,8 @@ def draw_game(screen, game):
 
 
     # bottom message
-    screen.blit(FONT.render("Msg: "+game.turn_msg, True, (240,240,240)), (20, WINDOW_H-28))
+    msgsurf = FONT.render("Msg: " + game.turn_msg, True, (240,240,240))
+    screen.blit(msgsurf, (panel_x, WINDOW_H - 40))
     # selection mode overlay
     if game.selection_mode:
         # darken
@@ -726,7 +773,7 @@ def game_loop():
                     elif ev.key in (pygame.K_d, pygame.K_RIGHT):
                         game.open_door_or_move('right')
                     elif ev.key==pygame.K_e:
-                        game.interact_current_cell
+                        game.interact_current_cell()
                     elif ev.key == pygame.K_i:
                         # toggle inventory? (we always show)
                         pass
