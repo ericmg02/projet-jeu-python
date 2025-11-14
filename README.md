@@ -91,7 +91,7 @@ python entities.py
 
 ## 💡 Notes
 
-* Compatible Python 3.8+
+* Compatible Python 3+
 * Aucune installation complexe : un simple `pygame` suffit.
 * Le jeu reste fonctionnel même sans dossier `images/`.
 
