@@ -14,14 +14,6 @@ import os
 from collections import defaultdict
 from abc import ABC,abstractmethod
 
-
-# -------------------------
-# Provided base classes (kept and slightly adapted)
-# -------------------------
-class Port:
-    def __init__(self, level):
-        self.level = int(level)
-
 class Piece:
     def __init__(self, nom, ports, cout, degre_rarete, cond_deplac, couleur, obj, image_id=None):
         self.__nom = nom
