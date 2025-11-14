@@ -11,7 +11,7 @@ Le jeu peut fonctionner **avec ou sans images** : si aucune image n’est fourni
 
 ## 📦 Requirements
 
-Créez un fichier `requirements.txt` contenant :
+un fichier `requirements.txt` contenant :
 
 ```
 pygame
