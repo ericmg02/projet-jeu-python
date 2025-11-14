@@ -678,15 +678,18 @@ class Game:
             Returns:
                 None
         """
+        
+        cell = self.grid[self.player_r][self.player_c]
+
         if cell.piece and cell.piece.obj.get('on_enter', {}).get('type') == 'shop':
             self.shop_menu()
             return
         
-        cell = self.grid[self.player_r][self.player_c]
         it = cell.interactable
         if not isinstance(it, Interactable):
             self.turn_msg = "Nothing to interact with."
             return
+        
         it.interact(self, cell)
 
     def opposite(self, direction):
