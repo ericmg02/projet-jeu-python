@@ -297,9 +297,9 @@ def make_piece(nom, imgfile, ports, cout, rare, cond, couleur, obj):
 
 # We'll define a small catalog with representative pieces
 ROOM_CATALOG.extend([
-    make_piece("Entrance Hall", "entrance.webp", {'up':True,'down':False,'left':False,'right':False}, 0, 0, None, "blue", {'on_enter': {'type':'start'}}),
+    make_piece("Entrance Hall", "Entrance_Hall_Icon.png", {'up':True,'down':False,'left':False,'right':False}, 0, 0, None, "blue", {'on_enter': {'type':'start'}}),
     make_piece("Antechamber", "antechamber.png", {'up':False,'down':True,'left':True,'right':True}, 0, 3, None, "blue", {'on_enter': {'type':'goal'}}),
-    make_piece("Vault", "vault.webp", {'up':True,'down':True,'left':False,'right':False}, 3, 3, None, "blue", {'on_enter': {'type':'coins','amount':40}}),
+    make_piece("Vault", "vault_Icon.png", {'up':True,'down':True,'left':False,'right':False}, 3, 3, None, "blue", {'on_enter': {'type':'coins','amount':40}}),
     make_piece("Veranda", "veranda.webp", {'up':True,'down':True,'left':True,'right':False}, 2, 2, 'edge', "green", {'on_draw': {'type':'inc_green_weight'}}),
     make_piece("Den", "den.webp", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "blue", {'on_draw': {'type':'gem_always'}}),
     make_piece("Maid's Chamber", "maid_chamber.webp", {'up':True,'down':True,'left':False,'right':True}, 0, 1, None, "purple", {'on_draw': {'type':'inc_find_objects'}}),
@@ -309,7 +309,7 @@ ROOM_CATALOG.extend([
     make_piece("Empty", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 0, None, "blue", {}),
     make_piece("Storage", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "orange",{'on_enter': {'type':'spawn','spawn':'chest'}}),
     make_piece("Locker Room", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "orange",{'on_enter': {'type':'spawn','spawn':'casier'}}),    make_piece("Courtyard", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, 'edge', "green",{'on_enter': {'type':'spawn','spawn':'dig_site'}}),
-
+    make_piece("Shop","empty.png",{'up':True,'down':True,'left':True,'right':True},0,1, None,'yellow',{'on_enter':{'type':'shop'}}),
 ])
 
 # multiplicity in initial deck (you can change)
@@ -422,6 +422,7 @@ class Game:
         self.selection_pos = 0
         self.target_cell = None
         self.running = True
+        self.in_shop=False
 
     def in_bounds(self, r,c):
         """Vérifie si des coordonnées sont dans les limites de la grille.
@@ -645,6 +646,7 @@ class Game:
 
             self.inventory.retirer("pas", 1)
             self.player_r, self.player_c = tr, tc
+            self.in_shop=False
             self.on_enter(cell)
             return
 
@@ -676,6 +678,10 @@ class Game:
             Returns:
                 None
         """
+        if cell.piece and cell.piece.obj.get('on_enter', {}).get('type') == 'shop':
+            self.shop_menu()
+            return
+        
         cell = self.grid[self.player_r][self.player_c]
         it = cell.interactable
         if not isinstance(it, Interactable):
@@ -709,6 +715,7 @@ class Game:
         p = cell.piece
         if not p:
             return
+        self.in_shop=False #par defaut on n'est pas dans une shop
         effects = p.obj.get('on_enter') if p.obj else None
         if effects:
             t = effects.get('type')
@@ -728,7 +735,7 @@ class Game:
             elif t == 'spawn':
                 what = effects.get('spawn')
                 if isinstance(cell.interactable, Interactable) and not cell.interactable.opened:
-                    # ya hay algo aquí sin abrir, no lo pisamos
+                    
                     return
                 if what == 'chest':
                     cell.interactable = Chest()
@@ -736,10 +743,19 @@ class Game:
                     cell.interactable = Casier()
                 elif what == 'dig_site':
                     cell.interactable = DigSite()
+            
                 if cell.interactable:
                     self.turn_msg = f"You found {cell.interactable.label()}! Press E to interact."
+            elif t=='shop':
+                self.turn_msg='You entered the shop. Press E to trade.'
+                self.in_shop=True
+
             else:
                 self.turn_msg = f"Entered {p.nom}."
+        else:
+             # Salle sans effet spécial
+            self.turn_msg = f"Entered {p.nom}."
+
         # possibility to find gems or items randomly
         # if detecteur_de_metaux increases keys/coins chance; patte_de_lapin increases chance to find items
         base_find = random.random()
@@ -914,6 +930,48 @@ class Game:
                         return True
 
         return False
+    
+    def shop_menu(self):
+        """
+        The player can buy items using coins.
+        Prices:
+            -key: 10 coins
+            -Die: 25 coins
+            -Steps(5): 8 coins
+        """
+        coins=self.inventory.objets_consommables.get('pieces',0)
+        if not hasattr(self, "shop_cycle"):
+            self.shop_cycle = 0
+
+        if self.shop_cycle == 0:
+            cost = 10
+            if coins >= cost:
+                self.inventory.retirer("pieces", cost)
+                self.inventory.ajouter_conso("cles", 1)
+                self.turn_msg = "Bought 1 key for 10 coins."
+            else:
+                self.turn_msg = "Not enough coins to buy a key (10 needed)."
+
+        elif self.shop_cycle == 1:
+            cost = 25
+            if coins >= cost:
+                self.inventory.retirer("pieces", cost)
+                self.inventory.ajouter_conso("des", 1)
+                self.turn_msg = "Bought 1 die for 25 coins."
+            else:
+                self.turn_msg = "Not enough coins to buy a die (25 needed)."
+
+        elif self.shop_cycle == 2:
+            cost = 8
+            if coins >= cost:
+                self.inventory.retirer("pieces", cost)
+                self.inventory.ajouter_conso("pas", 5)
+                self.turn_msg = "Bought 5 steps for 8 coins."
+            else:
+                self.turn_msg = "Not enough coins to buy steps (8 needed)."
+
+        # move to next option
+        self.shop_cycle = (self.shop_cycle + 1) % 3
 
 # -------------------------
 # Pygame rendering
