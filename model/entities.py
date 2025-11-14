@@ -435,6 +435,71 @@ class Game:
         """    
         return 0<=r<ROWS and 0<=c<COLS
     
+    def fits_board_and_direction(self, piece, tr, tc, direction):
+        """
+        Teste si une pièce peut être placée en (tr, tc) en respectant :
+        - contrainte 'edge'
+        - ports qui ne sortent pas du plateau
+        - compatibilité de ports avec les voisins
+
+        C'est le filtre demandé dans l'énoncé (ports & bords).
+        """
+        # contrainte 'edge' : la pièce ne peut aller qu'en bord si cond_deplac == 'edge'
+        if piece.cond_deplac == 'edge':
+            if tr not in (0, ROWS - 1) and tc not in (0, COLS - 1):
+                return False
+
+        # le reste (ports / voisins) est déjà géré par can_place_piece
+        return self.can_place_piece(piece, tr, tc, direction)
+
+    def generate_candidates(self, tr, tc, direction):
+        """
+        Génère jusqu'à 3 pièces candidates pour la case (tr, tc) en venant
+        de 'direction', en respectant :
+            - fits_board_and_direction (ports + bords)
+            - filtre par gemmes
+            - robustesse : au moins 1 choix coût 0 si possible
+
+        Retourne une liste de 1 à 3 pièces. Liste vide si aucune pièce légale.
+        """
+        # 1) toutes les pièces LEGALISABLES sur cette case
+        legal_pool = []
+        for p in self.deck:
+            if self.fits_board_and_direction(p, tr, tc, direction):
+                legal_pool.append(p)
+
+        if not legal_pool:
+            return []
+
+        # 2) filtre par gemmes (comme dans ton code original),
+        #    mais on ne perd jamais les pièces de coût 0
+        gems = self.inventory.objets_consommables.get('gemmes', 0)
+        pool = [p for p in legal_pool if p.cout == 0 or p.cout <= gems]
+
+        # si après filtre on n'a plus rien (pas assez de gemmes et pas de pièces à 0),
+        # on tombe en secours sur toutes les pièces légales
+        if not pool:
+            pool = legal_pool[:]  # fallback, en théorie rare si le deck est bien conçu
+
+        # 3) robustesse : au moins 1 choix coût 0 si possible
+        zero_cost_rooms = [p for p in pool if p.cout == 0]
+
+        candidates = []
+        if zero_cost_rooms:
+            # on force UNE pièce à coût 0
+            free_choice = random.choice(zero_cost_rooms)
+            candidates.append(free_choice)
+
+            # puis jusqu'à 2 autres distinctes
+            remaining_pool = [p for p in pool if p is not free_choice]
+            others = weighted_sample_no_replacement(remaining_pool, 2)
+            candidates.extend(others)
+        else:
+            # il n'existe aucune pièce coût 0 légale -> on prend juste 3 parmi le pool
+            candidates = weighted_sample_no_replacement(pool, 3)
+
+        return candidates[:3]
+
     def can_place_piece(self, piece, tr, tc, from_dir):
         """Teste si une pièce peut être placée en (tr, tc) en respectant les règles.
 
@@ -533,113 +598,73 @@ class Game:
         Si la case voisine contient déjà une pièce, tente d’ouvrir la porte selon
         l’inventaire (clé/kit) puis consomme un pas et entre dans la salle.
         Sinon, passe en mode sélection et propose des pièces valides à placer.
-
-        Args:
-            direction: Direction du mouvement ('up','down','left','right').
-
-        Returns:
-            None
         """
         tr, tc = self.neighbor_target(direction)
-        if not self.in_bounds(tr,tc):
+        if not self.in_bounds(tr, tc):
             self.turn_msg = "A wall. Can't go there."
             return
+
         cell = self.grid[tr][tc]
-        # if cell already has piece -> move
+
+        # --- CASE 1 : la case a déjà une pièce -> déplacement ---
         if cell.piece is not None:
-            # check door lock (if the door was set)
+            # check door lock (si la porte était définie)
             lock = cell.doors.get(self.opposite(direction))
             if lock is None:
                 lock = 0
-            # if locked
-            if lock>0:
-                opened=False
-                if self.inventory.objets_permanents.get("kit_de_crochetage") and lock==1:
-                    # kit opens level 1 free
+
+            if lock > 0:
+                opened = False
+                if self.inventory.objets_permanents.get("kit_de_crochetage") and lock == 1:
+                    # kit ouvre niveau 1 gratuitement
                     self.turn_msg = "Used kit to open a level 1 door."
-                    opened=True
-                elif self.inventory.objets_permanents.get("marteau") and lock<=2:
-                    # hammer can act as key for chests; assume not for locking doors
+                    opened = True
+                elif self.inventory.objets_permanents.get("marteau") and lock <= 2:
+                    # marteau : tu as laissé comme non utilisé pour les portes
                     pass
                 else:
-                    if self.inventory.objets_consommables.get("cles",0) > 0:
-                        self.inventory.retirer("cles",1)
+                    if self.inventory.objets_consommables.get("cles", 0) > 0:
+                        self.inventory.retirer("cles", 1)
                         self.turn_msg = "Used a key to open the door."
-                        opened=True
+                        opened = True
                     else:
-                        # can't open
                         self.turn_msg = "Door is locked and you have no key/kit."
                         return
-                if opened:
-                    cur_cell=self.grid[self.player_r][self.player_c]
-                    ttr,ttc=tr,tc
-                    target_cell=self.grid[ttr][ttc]
-                    #lock level goes to 0 in both ways
-                    cur_cell.doors[direction]=0
-                    target_cell.doors[self.opposite(direction)]=0
 
-            # moving consumes a step
-            if self.inventory.objets_consommables["pas"]<=0:
+                if opened:
+                    cur_cell = self.grid[self.player_r][self.player_c]
+                    target_cell = self.grid[tr][tc]
+                    # porte ouverte dans les deux sens
+                    cur_cell.doors[direction] = 0
+                    target_cell.doors[self.opposite(direction)] = 0
+
+            # déplacement consomme 1 pas
+            if self.inventory.objets_consommables["pas"] <= 0:
                 self.turn_msg = "No steps left! You can't move."
                 return
-            self.inventory.retirer("pas",1)
-            self.player_r, self.player_c = tr,tc
+
+            self.inventory.retirer("pas", 1)
+            self.player_r, self.player_c = tr, tc
             self.on_enter(cell)
             return
+
+        # --- CASE 2 : la case est vide -> mode sélection ---
         else:
-            
+            # direction réelle par rapport au joueur (sécurité)
             dr = tr - self.player_r
             dc = tc - self.player_c
-            dir_map = {(-1,0):'up',(1,0):'down',(0,-1):'left',(0,1):'right'}
-            direction = dir_map.get((dr,dc))
+            dir_map = {(-1, 0): 'up', (1, 0): 'down', (0, -1): 'left', (0, 1): 'right'}
+            real_dir = dir_map.get((dr, dc), direction)
 
-            # need to draw room candidates and select
-            # before draw: compute possible pieces that satisfy placement condition
-            valid_pool = []
-            for p in self.deck:
-                
-                if p.cond_deplac == 'edge':
-                    if tr not in (0, ROWS-1) and tc not in (0, COLS-1):
-                        continue
-                
-                if direction and self.can_place_piece(p, tr, tc, direction):
-                    valid_pool.append(p)
+            candidates = self.generate_candidates(tr, tc, real_dir)
+            if not candidates:
+                self.turn_msg = "No legal rooms can be placed here."
+                return
 
-                else:
-                    valid_pool.append(p)
-
-            
-            gems = self.inventory.objets_consommables.get('gemmes', 0)
-            affordable = [x for x in valid_pool if x.cout == 0 or x.cout <= gems]
-            if affordable:
-                valid_pool = affordable
-           
-            # ensure at least one candidate with gem cost 0
-            # draw weighted sample (3)
-            cands = weighted_sample_no_replacement(valid_pool, 10)  # sample many then pick a subset ensuring gem cost 0
-            # fallback simple
-            if not cands:
-                cands = weighted_sample_no_replacement(self.deck, 3)
-            # pick three ensuring at least one cost 0
-            pick = []
-            tries=0
-            while len(pick)<3 and tries<30:
-                tries+=1
-                candidate = random.choice(valid_pool) if valid_pool else random.choice(self.deck)
-                if candidate not in pick:
-                    pick.append(candidate)
-                # if after fill none has cost 0, force replace last with a cost 0 if possible
-                if len(pick)==3 and not any(x.cout==0 for x in pick):
-                    zeroes = [x for x in valid_pool if x.cout==0]
-                    if zeroes:
-                        pick[-1] = random.choice(zeroes)
-                        break
-            if len(pick)<3:
-                pick = weighted_sample_no_replacement(valid_pool, 3)
             self.selection_mode = True
-            self.candidates = pick
+            self.candidates = candidates
             self.selection_pos = 0
-            self.target_cell = (tr,tc)
+            self.target_cell = (tr, tc)
             self.turn_msg = "Choose a room (ENTER) or press R to redraw (spend a die)."
             return
 
@@ -817,44 +842,34 @@ class Game:
     def redraw_candidates_spend_die(self):
         """Repioche des pièces candidates en dépensant un dé.
 
-        Respecte les contraintes de placement et, si possible, assure au moins
-        une option à coût nul. Met à jour `turn_msg`.
-
-        Returns:
-            None
+        Respecte les contraintes de placement (ports + bords) et,
+        si possible, assure au moins une option à coût 0.
         """
-        if self.inventory.objets_consommables.get('des',0) <= 0:
+        if self.inventory.objets_consommables.get('des', 0) <= 0:
             self.turn_msg = "No dice to spend."
             return
-        if not self.selection_mode:
+        if not self.selection_mode or not self.target_cell:
             self.turn_msg = "Not in selection mode."
             return
-        self.inventory.retirer('des',1)
-        # redraw with same constraints
-        tr,tc = self.target_cell
-        valid_pool = []
-        for p in self.deck:
-            if p.cond_deplac == 'edge':
-                if tr in (0, ROWS-1) or tc in (0, COLS-1):
-                    valid_pool.append(p)
-            else:
-                valid_pool.append(p)
-        if not valid_pool:
-            valid_pool = self.deck[:]
 
-        gems = self.inventory.objets_consommables.get('gemmes', 0)
-        affordable = [x for x in valid_pool if x.cout == 0 or x.cout <= gems]
-        if affordable:
-            valid_pool = affordable
-        
-        self.candidates = weighted_sample_no_replacement(valid_pool, 3)
-        # ensure a zero-cost candidate exists if possible
-        if not any(x.cout==0 for x in self.candidates):
-            zeroes = [x for x in valid_pool if x.cout==0]
-            if zeroes:
-                self.candidates[-1] = random.choice(zeroes)
+        self.inventory.retirer('des', 1)
+
+        tr, tc = self.target_cell
+        # recalculer la direction depuis le joueur vers la case cible
+        dr = tr - self.player_r
+        dc = tc - self.player_c
+        dir_map = {(-1, 0): 'up', (1, 0): 'down', (0, -1): 'left', (0, 1): 'right'}
+        direction = dir_map.get((dr, dc))
+
+        candidates = self.generate_candidates(tr, tc, direction)
+        if not candidates:
+            self.turn_msg = "No legal rooms to redraw here."
+            return
+
+        self.candidates = candidates
         self.selection_pos = 0
         self.turn_msg = "Redrew candidates (spent a die)."
+
 
     def has_legal_moves(self):
         """Indique s’il reste au moins un coup légal.
