@@ -160,6 +160,27 @@ LOOT_TABLE_DIG=[
     ("cles",1,0.20),
     ("gemmes",1,0.20),
 ]
+# --- Shop items (always available in any shop room) ---
+SHOP_ITEMS = [
+    {   "code": "cles",
+        "label": "Key (+1)",
+        "cost": 10,
+        "target": "cles",
+        "amount": 1,},
+
+    {"code": "pas",
+        "label": "Steps (+5)",
+        "cost": 8,
+        "target": "pas",
+        "amount": 5,},
+
+    {"code": "food",
+        "label": "Food (+10 steps)",
+        "cost": 12,
+        "target": "pas",
+        "amount": 10,},
+]
+
 def _roll_loot(table,has_detector=False):
     "Returns a list of (resource, amount) according to independent probabilities. If nothing falls, gives consolation coins" 
     out=[]
@@ -463,7 +484,7 @@ ROOM_CATALOG.extend([
     make_piece("Garage", "Garage_Icon.png",
                {'up': False, 'down': True, 'left': False, 'right': False},
                0, 1, 'edge', "blue",
-               {'on_enter': {'type': 'detecteur_de_metaux', 'amount': 3}}),
+               {'on_enter': {'type': 'detecteur_de_metaux'}}),
 
     make_piece("Great Hall", "Great_Hall_Icon.png",
                {'up': True, 'down': True, 'left': True, 'right': True},
@@ -507,7 +528,7 @@ ROOM_CATALOG.extend([
     make_piece("Laundry Room", "Laundry_Room_Icon.png",
                {'up': False, 'down': True, 'left': False, 'right': False},
                0, 1, None, "yellow",
-               {'on_enter': {'type': 'coins', 'amount': 5}}),
+               {'on_enter': {'type': 'shop'}}),
 
     make_piece("Lavatory", "Lavatory_Icon.png",
                {'up': False, 'down': True, 'left': False, 'right': False},
@@ -800,6 +821,8 @@ class Game:
         self.target_cell = None
         self.running = True
         self.in_shop=False
+        self.shop_active=False 
+        self.shop_index=0
 
     def in_bounds(self, r,c):
         """Vérifie si des coordonnées sont dans les limites de la grille.
@@ -1069,8 +1092,21 @@ class Game:
         
         cell = self.grid[self.player_r][self.player_c]
 
+        # Si la salle est une shop, E sert à ouvrir/fermer le menu
         if cell.piece and cell.piece.obj.get('on_enter', {}).get('type') == 'shop':
-            self.shop_menu()
+            if not self.shop_active:
+                # On ouvre le menu
+                self.shop_active = True
+                self.shop_index = 0
+                item = SHOP_ITEMS[self.shop_index]
+                self.turn_msg = (
+                    f"Shop open: {item['label']} ({item['cost']} coins). "
+                    "Use ←/→ to choose, ENTER to buy, E to close."
+                )
+            else:
+                # On ferme le menu
+                self.shop_active = False
+                self.turn_msg = "Closed the shop."
             return
         
         it = cell.interactable
@@ -1107,6 +1143,7 @@ class Game:
         if not p:
             return
         self.in_shop=False #par defaut on n'est pas dans une shop
+        self.shop_active=False
         effects = p.obj.get('on_enter') if p.obj else None
         if effects:
             t = effects.get('type')
@@ -1162,6 +1199,8 @@ class Game:
             elif t=='shop':
                 self.turn_msg='You entered the shop. Press E to trade.'
                 self.in_shop=True
+                self.shop_active=False
+                self.shop_index=0
 
             else:
                 self.turn_msg = f"Entered {p.nom}."
@@ -1370,47 +1409,50 @@ class Game:
 
         return False
     
-    def shop_menu(self):
-        """
-        The player can buy items using coins.
-        Prices:
-            -key: 10 coins
-            -Die: 25 coins
-            -Steps(5): 8 coins
-        """
-        coins=self.inventory.objets_consommables.get('pieces',0)
-        if not hasattr(self, "shop_cycle"):
-            self.shop_cycle = 0
+    def shop_move_selection(self, delta):
+        """Déplace la sélection dans le menu de shop."""
+        if not (self.in_shop and self.shop_active):
+            return
+        n = len(SHOP_ITEMS)
+        if n == 0:
+            return
+        self.shop_index = (self.shop_index + delta) % n
+        item = SHOP_ITEMS[self.shop_index]
+        self.turn_msg = (
+            f"Shop: {item['label']} ({item['cost']} coins). "
+            "ENTER to buy, E to close."
+        )
 
-        if self.shop_cycle == 0:
-            cost = 10
-            if coins >= cost:
-                self.inventory.retirer("pieces", cost)
-                self.inventory.ajouter_conso("cles", 1)
-                self.turn_msg = "Bought 1 key for 10 coins."
-            else:
-                self.turn_msg = "Not enough coins to buy a key (10 needed)."
+    def shop_buy_current(self):
+        """Achète l’objet actuellement sélectionné dans le shop."""
+        if not (self.in_shop and self.shop_active):
+            self.turn_msg = "You are not in a shop."
+            return
 
-        elif self.shop_cycle == 1:
-            cost = 25
-            if coins >= cost:
-                self.inventory.retirer("pieces", cost)
-                self.inventory.ajouter_conso("des", 1)
-                self.turn_msg = "Bought 1 die for 25 coins."
-            else:
-                self.turn_msg = "Not enough coins to buy a die (25 needed)."
+        item = SHOP_ITEMS[self.shop_index]
+        cost = item["cost"]
+        coins = self.inventory.objets_consommables.get("pieces", 0)
 
-        elif self.shop_cycle == 2:
-            cost = 8
-            if coins >= cost:
-                self.inventory.retirer("pieces", cost)
-                self.inventory.ajouter_conso("pas", 5)
-                self.turn_msg = "Bought 5 steps for 8 coins."
-            else:
-                self.turn_msg = "Not enough coins to buy steps (8 needed)."
+        if coins < cost:
+            self.turn_msg = (
+                f"Not enough coins for {item['label']} "
+                f"(need {cost}, you have {coins})."
+            )
+            return
 
-        # move to next option
-        self.shop_cycle = (self.shop_cycle + 1) % 3
+        # On paie
+        self.inventory.retirer("pieces", cost)
+        # On applique l'effet (simplement des consommables ici)
+        self.inventory.ajouter_conso(item["target"], item["amount"])
+
+        if item["code"] == "cles":
+            gained = f"{item['amount']} key(s)"
+        else:
+            # steps et food transforment tous deux en pas
+            gained = f"{item['amount']} steps"
+
+        self.turn_msg = f"Bought {item['label']} for {cost} coins. Gained {gained}."
+
 
 # -------------------------
 # Pygame rendering
@@ -1547,6 +1589,25 @@ def draw_game(screen, game):
         screen.blit(txt, (panel_x+5, y))
         y += 22
 
+    #Shop panel
+    if game.in_shop:
+        y += 10
+        title = "🏬 Shop (press E)" if not game.shop_active else "🏬 Shop (←/→, ENTER, E)"
+        screen.blit(EMOJI_FONT.render(title, True, (210,210,255)), (panel_x, y))
+        y += 22
+
+        for i, item in enumerate(SHOP_ITEMS):
+            selected = (i == game.shop_index and game.shop_active)
+            prefix = "> " if selected else "  "
+            color = (255,255,0) if selected else (220,220,220)
+            txt = FONT.render(
+                f"{prefix}{item['label']}  [{item['cost']} coins]",
+                True,
+                color
+            )
+            screen.blit(txt, (panel_x+5, y))
+            y += 18
+
 
     # bottom message
     msgsurf = FONT.render("Msg: " + game.turn_msg, True, (240,240,240))
@@ -1648,20 +1709,33 @@ def game_loop():
                     elif ev.key in (pygame.K_RIGHT, pygame.K_d):
                         game.selection_pos = min(len(game.candidates)-1, game.selection_pos+1)
                 else:
-                    # movement keys (Z Q S D or arrows)
-                    if ev.key in (pygame.K_z, pygame.K_UP):
-                        game.open_door_or_move('up')
-                    elif ev.key in (pygame.K_s, pygame.K_DOWN):
-                        game.open_door_or_move('down')
-                    elif ev.key in (pygame.K_q, pygame.K_LEFT):
-                        game.open_door_or_move('left')
-                    elif ev.key in (pygame.K_d, pygame.K_RIGHT):
-                        game.open_door_or_move('right')
-                    elif ev.key==pygame.K_e:
-                        game.interact_current_cell()
-                    elif ev.key == pygame.K_i:
-                        # toggle inventory? (we always show)
-                        pass
+                    # Si le menu de shop est ouvert, les touches servent au shop
+                    if game.shop_active:
+                        if ev.key in (pygame.K_LEFT, pygame.K_q):
+                            game.shop_move_selection(-1)
+                        elif ev.key in (pygame.K_RIGHT, pygame.K_d):
+                            game.shop_move_selection(+1)
+                        elif ev.key == pygame.K_RETURN:
+                            game.shop_buy_current()
+                        elif ev.key == pygame.K_e:
+                            game.interact_current_cell()  # ferme le shop
+                        # Les touches de mouvement sont ignorées tant que le shop est ouvert
+                    
+                    else:  
+                        # movement keys (Z Q S D or arrows)
+                        if ev.key in (pygame.K_z, pygame.K_UP):
+                            game.open_door_or_move('up')
+                        elif ev.key in (pygame.K_s, pygame.K_DOWN):
+                            game.open_door_or_move('down')
+                        elif ev.key in (pygame.K_q, pygame.K_LEFT):
+                            game.open_door_or_move('left')
+                        elif ev.key in (pygame.K_d, pygame.K_RIGHT):
+                            game.open_door_or_move('right')
+                        elif ev.key==pygame.K_e:
+                            game.interact_current_cell()
+                        elif ev.key == pygame.K_i:
+                            # toggle inventory? (we always show)
+                            pass
                     
         # check lose condition
         if game.inventory.objets_consommables.get('pas',0) <= 0:
