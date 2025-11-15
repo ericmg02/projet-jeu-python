@@ -689,6 +689,69 @@ ROOM_CATALOG.extend([
                {'up': False, 'down': True, 'left': False,  'right': False},
                1, 3, 'center', "blue",
                {'on_draw': {'type': 'study_redraw_bonus'}}),
+    make_piece("Terrace", "Terrace_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               1, 2, 'edge', "green",
+               {'on_enter': {'type': 'green_rooms_free'}}),
+
+    make_piece("The Armory", "The_Armory_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               1, 2, None, "yellow",
+               {'on_enter': {'type': 'shop'}}),
+
+    make_piece("The Pool", "The_Pool_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               1, 2, 'center', "blue",
+               {'on_draw': {'type': 'add_pool_rooms'}}),
+
+    make_piece("Trophy Room", "Trophy_Room_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               2, 3, 'center', "blue",
+               {'on_enter': {'type': 'set_gems', 'amount': 8}}),
+
+    make_piece("Utility Closet", "Utility_Closet_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 1, None, "blue",
+               {'on_enter': {'type': 'breaker_box'}}),
+
+    make_piece("Vault", "Vault_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               2, 3, 'center', "blue",
+               {'on_enter': {'type': 'coins', 'amount': 40}}),
+
+    make_piece("Veranda", "Veranda_Icon.png",
+               {'up': True, 'down': True, 'left': False, 'right': False},
+               1, 2, 'edge', "green",
+               {'on_enter': {'type': 'inc_find_objects'}}),
+
+    make_piece("Walk-in Closet", "Walk-in_Closet_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'storeroom_loot'}}),
+
+    make_piece("Weight Room", "Weight_Room_Icon.png",
+               {'up': True, 'down': True, 'left': True, 'right': True},
+               1, 2, None, "red",
+               {'on_enter': {'type': 'lose_half_steps'}}),
+
+    make_piece("West Wing Hall", "West_Wing_Hall_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "orange",
+               {}),
+    make_piece("Wine Cellar", "Wine_Cellar_Icon.png",
+           {'up': False, 'down': True, 'left': False, 'right': False},
+           1, 2, None, "blue",
+           {'on_enter': {'type': 'gemmes', 'amount': 3}}),
+
+    make_piece("Workshop", "Workshop_Icon.png",
+            {'up': True, 'down': True, 'left': False, 'right': False},
+            1, 2, None, "blue",
+            {'on_enter': {'type': 'combine_items'}}),
+
+    make_piece("The Foundation", "theFoundation.png",
+            {'up': False, 'down': True, 'left': True, 'right': True},
+            2, 3, 'center', "blue",
+            {'on_enter': {'type': 'no_daily_reset'}}),
 
 ])
 
@@ -1460,6 +1523,16 @@ class Game:
 import pygame
 pygame.font.init()
 
+def load_item_image(name, size=(24, 24)):
+    """Charge une icône d'objet depuis le dossier items."""
+    path = os.path.join("projet-jeu-python-main/model/items", name)
+    try:
+        img = pygame.image.load(path).convert_alpha()
+        img = pygame.transform.smoothscale(img, size)
+        return img
+    except Exception:
+        return None
+    
 # try emoji font first, fallback to Arial
 try:
     EMOJI_FONT = pygame.font.Font("C:/Windows/Fonts/seguiemj.ttf", 18)
@@ -1560,34 +1633,83 @@ def draw_game(screen, game):
                     color = (150,150,150) if lv==0 else (200,120,60) if lv==1 else (200,60,60)
                     pygame.draw.circle(screen, color, (px,py), 6)
     panel_x = COLS*CELL_W + 40
-    pygame.draw.rect(screen, (25, 25, 25), (panel_x-15, 10, WINDOW_W - panel_x - 25, WINDOW_H - 20), border_radius=10)
-    pygame.draw.rect(screen, (60, 60, 70), (panel_x-15, 10, WINDOW_W - panel_x - 25, 40), border_radius=10)
-    screen.blit(EMOJI_FONT.render("📦 Inventory", True, (255,255,255)), (panel_x, 18))
+    pygame.draw.rect(
+        screen,
+        (25, 25, 25),
+        (panel_x - 15, 10, WINDOW_W - panel_x - 25, WINDOW_H - 20),
+        border_radius=10,
+    )
+    pygame.draw.rect(
+        screen,
+        (60, 60, 70),
+        (panel_x - 15, 10, WINDOW_W - panel_x - 25, 40),
+        border_radius=10,
+    )
+    screen.blit(EMOJI_FONT.render("Inventory", True, (255, 255, 255)), (panel_x, 18))
 
     inv = game.inventory
-        # --- right panel ---
-    
+
+    # --- Consumables ---
     y = 60
-    screen.blit(EMOJI_FONT.render("🧺 Consumables", True, (210,210,255)), (panel_x, y))
+    screen.blit(EMOJI_FONT.render("Consumables", True, (210, 210, 255)), (panel_x, y))
 
     y += 22
-    for k,v in inv.objets_consommables.items():
-        bar_len = min(120, v*2)  # small visual bar
-        pygame.draw.rect(screen, (80,80,150), (panel_x+130, y+5, bar_len, 6))
-        txt = FONT.render(f"{k:10s} : {v}", True, (230,230,230))
-        screen.blit(txt, (panel_x+5, y))
-        y += 20
+    for k, v in inv.objets_consommables.items():
+        icon_name = {
+            "pas": "steps.png",
+            "pieces": "coin.png",
+            "gemmes": "gems.png",
+            "cles": "key.png",
+            "des": "die.png",
+        }.get(k, None)
 
+        text_x = panel_x + 5
+
+        if icon_name:
+            img = load_item_image(icon_name, size=(24, 24))
+            if img:
+                screen.blit(img, (panel_x + 5, y))
+                text_x = panel_x + 5 + 24 + 6  # texte à droite de l’icône
+
+        bar_len = min(120, v * 2)
+        pygame.draw.rect(screen, (80, 80, 150), (panel_x + 130, y + 5, bar_len, 6))
+
+        txt = FONT.render(f"{k} : {v}", True, (230, 230, 230))
+        screen.blit(txt, (text_x, y))
+
+        y += 30
+
+    # --- Permanents ---
     y += 8
-    screen.blit(EMOJI_FONT.render("⚙️  Permanents", True, (210,210,255)), (panel_x, y))
+    screen.blit(EMOJI_FONT.render("Permanents", True, (210, 210, 255)), (panel_x, y))
 
     y += 22
-    for k,v in inv.objets_permanents.items():
-        color = (100,220,100) if v else (160,160,160)
-        status = "✔" if v else "✖"
-        txt = FONT.render(f"{status} {k}", True, color)
-        screen.blit(txt, (panel_x+5, y))
-        y += 22
+    for k, v in inv.objets_permanents.items():
+        icon_name = {
+            "pelle": "shovel.png",
+            "marteau": "hammer.png",
+            "kit_de_crochetage": "lockpick.png",
+            "detecteur_de_metaux": "detector.png",
+            "patte_de_lapin": "rabbitfoot.png",
+        }.get(k, None)
+
+        text_x = panel_x + 5
+
+        if icon_name:
+            img = load_item_image(icon_name, size=(24, 24))
+            if img:
+                if not v:
+                    gray = img.copy()
+                    gray.fill((80, 80, 80), None, pygame.BLEND_RGBA_MULT)
+                    img = gray
+                screen.blit(img, (panel_x + 5, y))
+                text_x = panel_x + 5 + 24 + 6
+
+        color = (230, 255, 230) if v else (140, 140, 140)
+        txt = FONT.render(f"{k}", True, color)
+        screen.blit(txt, (text_x, y))
+
+        y += 26 
 
     #Shop panel
     if game.in_shop:
