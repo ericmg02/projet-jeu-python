@@ -23,44 +23,73 @@ class Port:
         self.level = int(level)
 
 class Piece:
-    def __init__(self, nom, ports, cout, degre_rarete, cond_deplac, couleur, obj, image_id=None):
+    def __init__(self, nom, ports, cout, degre_rarete, zones_autorisees, couleur, obj, image_id=None):
+        # attributs de base
         self.__nom = nom
         self.__image_id = image_id
         self.__cout = cout
         self.__degre_rarete = degre_rarete
-        self.__ports = ports  # e.g. dict {'up': True, 'down': True, ...}
-        self.__cond_deplac = cond_deplac
+        self.__ports = ports
         self.__couleur = couleur
         self.__obj = obj
+
+        # IMPORTANT : toujours définir __cond_deplac pour éviter l'AttributeError
+        self.__cond_deplac = None
+        # zones_autorisees peut être :
+        # - une liste/ensemble de zones -> on le garde comme zones_autorisees
+        # - une string ('edge', 'corner', 'center', etc.) -> on la traite comme cond_deplac
+        if isinstance(zones_autorisees, str):
+            # ici on utilise la string comme contrainte de déplacement
+            self.__cond_deplac = zones_autorisees
+            self.__zones_autorisees = None
+        elif zones_autorisees:
+            # liste / set / tuple de zones
+            self.__zones_autorisees = set(zones_autorisees)
+        else:
+            self.__zones_autorisees = None
+
+    # propriétés
+    @property
+    def zones_autorisees(self):
+        return self.__zones_autorisees
 
     @property
     def nom(self):
         return self.__nom
+
     @property
     def cout(self):
         return self.__cout
+
     @property
     def ports(self):
         return self.__ports
+
     @property
     def degre_rarete(self):
         return self.__degre_rarete
+
     @property
     def couleur(self):
         return self.__couleur
+
     @property
     def image_id(self):
         return self.__image_id
+
     @property
     def cond_deplac(self):
+        # si jamais on a oublié de le définir, on renvoie None plutôt qu'une erreur
         return self.__cond_deplac
+
     @property
     def obj(self):
         return self.__obj
 
-    #methode
-    def proba_tirage(self): #pour calculer la probab de tirer une piece suivant sa rareté
-        return 1/(3**self.__degre_rarete)
+    # méthode
+    def proba_tirage(self):
+        """Pour calculer la probabilité de tirer une pièce suivant sa rareté."""
+        return 1 / (3 ** self.__degre_rarete)
 
 class Inventory:
     def __init__(self):
@@ -261,17 +290,17 @@ class DigSite(Interactable):
 # -------------------------
 # Game-specific code
 # -------------------------
-CELL_W = 70   
-CELL_H = 70   
+CELL_W = 80  
+CELL_H = 80   
 ROWS = 9
 COLS = 5
-WINDOW_W = COLS*CELL_W + 400   
+WINDOW_W = COLS*CELL_W + 400  
 WINDOW_H = ROWS*CELL_H + 80
 
 MARGIN = 3
 
 
-IMAGES_FOLDER = "images"
+IMAGES_FOLDER = "projet-jeu-python-main/model/pictures/rooms"
 
 pygame.init()
 FONT = pygame.font.SysFont("Arial", 16)
@@ -291,30 +320,362 @@ def load_image(name, size=(CELL_W, CELL_H)):
 # cond_deplac is simple placeholder (None or 'edge' meaning only border)
 ROOM_CATALOG = []
 
-def make_piece(nom, imgfile, ports, cout, rare, cond, couleur, obj):
-    p = Piece(nom, ports, cout, rare, cond, couleur, obj, image_id=imgfile)
-    return p
+def make_piece(nom, imgfile, ports, cout, rare, zones_autorisees, couleur, obj):
+    return Piece(nom, ports, cout, rare, zones_autorisees, couleur, obj, image_id=imgfile)
 
 # We'll define a small catalog with representative pieces
 ROOM_CATALOG.extend([
-    make_piece("Entrance Hall", "Entrance_Hall_Icon.png", {'up':True,'down':False,'left':False,'right':False}, 0, 0, None, "blue", {'on_enter': {'type':'start'}}),
-    make_piece("Antechamber", "antechamber.png", {'up':False,'down':True,'left':True,'right':True}, 0, 3, None, "blue", {'on_enter': {'type':'goal'}}),
-    make_piece("Vault", "vault_Icon.png", {'up':True,'down':True,'left':False,'right':False}, 3, 3, None, "blue", {'on_enter': {'type':'coins','amount':40}}),
-    make_piece("Veranda", "veranda.webp", {'up':True,'down':True,'left':True,'right':False}, 2, 2, 'edge', "green", {'on_draw': {'type':'inc_green_weight'}}),
-    make_piece("Den", "den.webp", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "blue", {'on_draw': {'type':'gem_always'}}),
-    make_piece("Maid's Chamber", "maid_chamber.webp", {'up':True,'down':True,'left':False,'right':True}, 0, 1, None, "purple", {'on_draw': {'type':'inc_find_objects'}}),
-    make_piece("Garden", "garden.png", {'up':True,'down':True,'left':True,'right':True}, 0, 2, 'edge', "green", {'on_enter': {'type':'maybe_gem','chance':0.5}}),
-    make_piece("Furnace", "furnace.png", {'up':False,'down':True,'left':True,'right':True}, 0, 2, None, "orange", {'on_draw': {'type':'inc_fire_weight'}}),
-    make_piece("Bedroom", "bedroom.webp", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "purple", {'on_enter': {'type':'food','amount':10}}),
-    make_piece("Empty", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 0, None, "blue", {}),
-    make_piece("Storage", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "orange",{'on_enter': {'type':'spawn','spawn':'chest'}}),
-    make_piece("Locker Room", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, None, "orange",{'on_enter': {'type':'spawn','spawn':'casier'}}),    make_piece("Courtyard", "empty.png", {'up':True,'down':True,'left':True,'right':True}, 0, 1, 'edge', "green",{'on_enter': {'type':'spawn','spawn':'dig_site'}}),
-    make_piece("Shop","empty.png",{'up':True,'down':True,'left':True,'right':True},0,1, None,'yellow',{'on_enter':{'type':'shop'}}),
+    # Entrée
+    make_piece("Entrance Hall", "Entrance_Hall_Icon.png",
+               {'up': True, 'down': False, 'left': True, 'right': True},
+               0, 0, None, "blue",
+               {'on_enter': {'type': 'start'}}),
+
+    ##
+    make_piece("Attic", "Attic_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               3, 3, None, "blue",
+               {'on_enter': {'type': 'attic_loot'}}),
+
+    make_piece("Ballroom", "Ballroom_Icon.png",
+               {'up': True, 'down': True, 'left': False, 'right': False},
+               2, 2, None, "blue",
+               {'on_enter': {'type': 'set_gems', 'amount': 2}}),
+
+    make_piece("Bedroom", "Bedroom_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               0, 1, None, "purple",
+               {'on_enter': {'type': 'steps_gain', 'amount': 2}}),
+
+    make_piece("Billiard Room", "Billiard_Room_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               0, 1, None, "blue",
+               {}),
+
+    make_piece("Boiler Room", "Boiler_Room_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               1, 2, None, "blue",
+               {}),
+
+    make_piece("Bookshop", "Bookshop_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               1, 3, 'corner', "yellow",
+               {'on_enter': {'type': 'shop'}}),
+
+    make_piece("Bunk Room", "Bunk_Room_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 2, None, "purple",
+               {'on_enter': {'type': 'steps_gain', 'amount': 4}}),
+
+    make_piece("Boudoir", "Boudoir_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               0, 1, None, "purple",
+               {'on_enter': {'type': 'steps_gain', 'amount': 2}}),
+
+    make_piece("Chamber of Mirrors", "Chamber_of_Mirrors_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 3, 'center', "blue",
+               {}),
+    make_piece("Chapel", "Chapel_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "red",
+               {'on_enter': {'type': 'lose_coin', 'amount': 1}}),
+
+    make_piece("Cloister", "Cloister_Icon.png",
+               {'up': True, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "green", {}),
+
+    make_piece("Closet", "Closet_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 1, None, "blue", {}),
+
+    make_piece("Coat Check", "Coat_Check_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 1, None, "blue", {}),
+
+    make_piece("Commissary", "Commissary_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               1, 2, None, "yellow",
+               {'on_enter': {'type': 'shop'}}),
+
+    make_piece("Conference Room", "Conference_Room_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               1, 2, None, "blue", {}),
+
+    make_piece("Corridor", "Corridor_Icon.png",
+               {'up': True, 'down': True, 'left': False, 'right': False},
+               0, 0, None, "orange", {}),
+
+    make_piece("Courtyard", "Courtyard_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 1, 'edge', "green",
+               {'on_enter': {'type': 'spawn', 'spawn': 'dig_site'}}),
+
+    make_piece("Darkroom", "Darkroom_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "red", {}),
+
+    make_piece("Den", "Den_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "blue",
+               {'on_draw': {'type': 'gem_always'}}),
+
+    make_piece("Dining Room", "Dining_Room_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'food', 'amount': 6}}),
+
+    make_piece("Drafting Studio", "Drafting_Studio_Icon.png",
+               {'up': True, 'down': True, 'left': False, 'right': False},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'allow_new_floorplan'}}),
+
+    make_piece("Drawing Room", "Drawing_Room_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               1, 2, None, "blue",
+               {}),
+
+    make_piece("East Wing Hall", "East_Wing_Hall_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "orange",
+               {}),
+
+    make_piece("Foyer", "Foyer_Icon.png",
+               {'up': True, 'down': True, 'left': False, 'right': False},
+               0, 1, None, "orange",
+               {}),
+
+    make_piece("Freezer", "Freezer_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'freeze_accounts'}}),
+
+    make_piece("Furnace", "Furnace_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 2, None, "red",
+               {'on_draw': {'type': 'inc_fire_weight'}}),
+
+    make_piece("Gallery", "Gallery_Icon.png",
+               {'up': True, 'down': True, 'left': False, 'right': False},
+               0, 1, None, "blue",
+               {}),
+
+    make_piece("Garage", "Garage_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 1, 'edge', "blue",
+               {'on_enter': {'type': 'gain_keys', 'amount': 3}}),
+
+    make_piece("Great Hall", "Great_Hall_Icon.png",
+               {'up': True, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "orange",
+               {}),
+    make_piece("Greenhouse", "Greenhouse_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               1, 2, 'edge', "green",
+               {'on_draw': {'type': 'inc_green_weight'}}),
+
+    make_piece("Guest Bedroom", "Guest_Bedroom_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 2, None, "purple",
+               {'on_enter': {'type': 'food', 'amount': 10}}),
+
+    make_piece("Gymnasium", "Gymnasium_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 1, None, "red",
+               {'on_enter': {'type': 'food', 'amount': -2}}),
+
+    make_piece("Hallway", "Hallway_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': True},
+               0, 0, None, "orange",
+               {}),
+
+    make_piece("Her Ladyship's Chamber", "Her_Ladyship's_Chamber_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 2, None, "purple",
+               {}),
+
+    make_piece("Kitchen", "Kitchen_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               1, 2, 'edge', "yellow",
+               {'on_enter': {'type': 'shop'}}),
+
+    make_piece("Laboratory", "Laboratory_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               1, 2, None, "blue",
+               {}),
+
+    make_piece("Laundry Room", "Laundry_Room_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 1, None, "yellow",
+               {'on_enter': {'type': 'coins', 'amount': 5}}),
+
+    make_piece("Lavatory", "Lavatory_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 1, None, "red",
+               {}),
+
+    make_piece("Library", "Library_Icon.png",
+               {'up': False, 'down': True, 'left': True, 'right': False},
+               1, 3, 'center', "blue",
+               {'on_draw': {'type': 'inc_rare_weight'}}),
+
+    make_piece("Locker Room", "Locker_Room_Icon.png",
+               {'up': True, 'down': True, 'left': False,  'right': False},
+               0, 1, None, "blue",
+               {'on_enter': {'type': 'spread_keys'}}),
+
+    make_piece("Locksmith", "Locksmith_Icon.png",
+               {'up': False, 'down': True,  'left': False, 'right': False},
+               1, 2, 'edge', "yellow",
+               {'on_enter': {'type': 'shop'}}),
+
+    make_piece("Maid's Chamber", "Maid's_Chamber_Icon.png",
+               {'up': False, 'down': True, 'left': True,  'right': False},
+               0, 2, None, "red",
+               {'on_draw': {'type': 'dec_find_objects'}}),
+
+    make_piece("Mail Room", "Mail_Room_Icon.png",
+               {'up': False, 'down': True, 'left': False,  'right': False},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'mail_package'}}),
+
+    make_piece("Master Bedroom", "Master_Bedroom_Icon.png",
+               {'up': False,  'down': True,  'left': False, 'right': False},
+               2, 3, None, "purple",
+               {'on_enter': {'type': 'steps_per_room'}}),
+
+    make_piece("Morning Room", "Morning_Room_Icon.png",
+               {'up': False,  'down': True, 'left': True,  'right': False},
+               1, 2, 'edge', "green",
+               {'on_enter': {'type': 'set_gems_next_day', 'amount': 2}}),
+
+    make_piece("Mount Holly Gift Shop", "Mount_Holly_Gift_Shop_Icon.png",
+               {'up': False,  'down': True,  'left': True, 'right': True},
+               1, 2, 'edge', "yellow",
+               {'on_enter': {'type': 'shop'}}),
+
+    make_piece("Music Room", "Music_Room_Icon.png",
+               {'up': False,  'down': True,  'left': True,  'right': False},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'gain_keys_mixed'}}),
+
+    make_piece("Nook", "Nook_Icon.png",
+               {'up': False, 'down': True,  'left': True, 'right': False},
+               0, 1, None, "blue",
+               {'on_enter': {'type': 'gain_keys', 'amount': 1}}),
+
+    make_piece("Nursery", "Nursery_Icon.png",
+               {'up': False,  'down': True,  'left': False,  'right': False},
+               1, 2, None, "purple",
+               {'on_enter': {'type': 'bonus_for_bedrooms'}}),
+
+    make_piece("Observatory", "Observatory_Icon.png",
+               {'up': False, 'down': True,  'left': True, 'right': False},
+               1, 3, 'center', "blue",
+               {'on_draw': {'type': 'observatory_bonus'}}),
+
+    make_piece("Office", "Office_Icon.png",
+               {'up': False, 'down': True, 'left': True,  'right': False},
+               1, 1, None, "blue",
+               {'on_enter': {'type': 'spread_coins'}}),
+
+    make_piece("Pantry", "Pantry_Icon.png",
+               {'up': False, 'down': True,  'left': True, 'right': False},
+               0, 1, None, "blue",
+               {'on_enter': {'type': 'coins', 'amount': 4}}),
+
+    make_piece("Parlor", "Parlor_Icon.png",
+               {'up': False, 'down': True, 'left': True,  'right': False},
+               0, 1, None, "blue",
+               {}),
+
+    make_piece("Passageway", "Passageway_Icon.png",
+               {'up': True,  'down': True,  'left': True,  'right': True},
+               0, 0, None, "orange",
+               {}),
+
+    make_piece("Patio", "Patio_Icon.png",
+               {'up': False,  'down': True, 'left': True,  'right': False},
+               1, 2, 'edge', "green",
+               {'on_enter': {'type': 'spread_gems_green'}}),
+
+    make_piece("Pump Room", "Pump_Room_Icon.png",
+               {'up': False,  'down': True,  'left': True, 'right': False},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'water_control'}}),
+
+    make_piece("Room 8", "Room_8_Icon.png",
+               {'up': False, 'down': True,  'left': True, 'right': False},
+               0, 1, None, "blue",
+               {}),
+
+    make_piece("Room 46", "Room_46_Icon.png",
+               {'up': False, 'down': False, 'left': False, 'right': False},
+               0, 0, 'center', "blue",
+               {}),
+
+    make_piece("Rotunda", "Rotunda_Icon.png",
+               {'up': False,  'down': True,  'left': True,  'right': False},
+               2, 3, 'center', "blue",
+               {'on_enter': {'type': 'rotate_house'}}),
+    
+    make_piece("Rumpus Room", "Rumpus_Room_Icon.png",
+               {'up': True,  'down': True,  'left': False,  'right': False},
+               0, 1, None, "blue",
+               {'on_enter': {'type': 'coins', 'amount': 8}}),
+
+    make_piece("Sauna", "Sauna_Icon.png",
+               {'up': False, 'down': True,  'left': False, 'right': False},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'steps_next_day', 'amount': 20}}),
+
+    make_piece("Secret Garden", "Secret_Garden_Icon.png",
+               {'up': False,  'down': True,  'left': True,  'right': True},
+               1, 2, 'edge', "green",
+               {'on_enter': {'type': 'spread_fruit'}}),
+
+    make_piece("Secret Passage", "Secret_Passage_Icon.png",
+               {'up': False, 'down': True,  'left': False, 'right': False},
+               0, 1, None, "orange",
+               {'on_enter': {'type': 'teleport_color_choice'}}),
+
+    make_piece("Security", "Security_Icon.png",
+               {'up': False,  'down': True, 'left': True,  'right': True},
+               1, 2, None, "blue",
+               {'on_enter': {'type': 'view_inventory'}}),
+
+    make_piece("Servant's Quarters", "Servant's_Quarters_Icon.png",
+               {'up': False,  'down': True, 'left': False, 'right': False},
+               0, 2, None, "purple",
+               {'on_enter': {'type': 'gain_keys_per_bedroom'}}),
+
+    make_piece("Showroom", "Showroom_Icon.png",
+               {'up': True,  'down': True,  'left': False, 'right': False},
+               1, 2, 'edge', "yellow",
+               {'on_enter': {'type': 'shop'}}),
+
+    make_piece("Spare Room", "Spare_Room_Icon.png",
+               {'up': True, 'down': True, 'left': False,  'right': False},
+               0, 1, None, "blue",
+               {}),
+
+    make_piece("Storeroom", "Storeroom_Icon.png",
+               {'up': False,  'down': True,  'left': False, 'right': False},
+               0, 1, None, "blue",
+               {'on_enter': {'type': 'storeroom_loot'}}),
+
+    make_piece("Study", "Study_Icon.png",
+               {'up': False, 'down': True, 'left': False,  'right': False},
+               1, 3, 'center', "blue",
+               {'on_draw': {'type': 'study_redraw_bonus'}}),
+
 ])
 
 # multiplicity in initial deck (you can change)
 INITIAL_DECK = []
 for p in ROOM_CATALOG:
+    if p.nom == "Entrance Hall":
+        continue  # on ne le met pas dans la pioche: que pour la 1ere
     # add multiple instances for balance: more commons than rares
     mult = 1 if p.degre_rarete>=3 else 3 if p.degre_rarete==2 else 5 if p.degre_rarete==1 else 7
     for _ in range(mult):
@@ -370,6 +731,29 @@ class Cell:
 
 DIRS = {'up':(-1,0), 'down':(1,0), 'left':(0,-1), 'right':(0,1)}
 OPP  = {'up':'down','down':'up','left':'right','right':'left'}
+DIR_ORDER = ['up', 'right', 'down', 'left']
+
+def rotated_ports(ports_dict, quarter_turns):
+    """
+    quarter_turns = 0,1,2,3 (0°, 90°, 180°, 270° dans le sens horaire).
+    Retourne un nouveau dict ports tourné.
+    """
+    quarter_turns = quarter_turns % 4
+    new_ports = {}
+    for i, d in enumerate(DIR_ORDER):
+        has_port = ports_dict.get(d, False)
+        # nouvelle direction après rotation
+        new_dir = DIR_ORDER[(i + quarter_turns) % 4]
+        new_ports[new_dir] = has_port
+    return new_ports
+
+class Cell:
+    def __init__(self):
+        self.piece = None
+        self.rotation = 0   # 0,1,2,3 → 0°, 90°, 180°, 270°
+        self.doors = {'up':None,'down':None,'left':None,'right':None}
+        self.interactable=None
+
 
 class Game:
     """Boucle et état principal du jeu « Blue Prince ».
@@ -436,6 +820,15 @@ class Game:
         """    
         return 0<=r<ROWS and 0<=c<COLS
     
+    def cell_ports(self, r, c):
+        cell = self.grid[r][c]
+        if not cell.piece:
+            return {'up':False,'down':False,'left':False,'right':False}
+        return rotated_ports(cell.piece.ports, cell.rotation)
+    
+    def piece_ports_with_rotation(self, piece, rotation):
+        return rotated_ports(piece.ports, rotation)
+    
     def fits_board_and_direction(self, piece, tr, tc, direction):
         """
         Teste si une pièce peut être placée en (tr, tc) en respectant :
@@ -446,11 +839,20 @@ class Game:
         C'est le filtre demandé dans l'énoncé (ports & bords).
         """
         # contrainte 'edge' : la pièce ne peut aller qu'en bord si cond_deplac == 'edge'
-        if piece.cond_deplac == 'edge':
-            if tr not in (0, ROWS - 1) and tc not in (0, COLS - 1):
-                return False
+        cond = piece.cond_deplac
+        on_edge = (tr == 0 or tr == ROWS-1 or tc == 0 or tc == COLS-1)
+        in_corner = (tr in (0, ROWS-1) and tc in (0, COLS-1))
+        in_center = (0 < tr < ROWS-1 and 0 < tc < COLS-1)
 
-        # le reste (ports / voisins) est déjà géré par can_place_piece
+        if cond == 'edge' and not on_edge:
+            return False
+        if cond == 'corner' and not in_corner:
+            return False
+        if cond == 'center' and not in_center:
+            return False
+        # si cond == None ou 'any' → pas de contrainte
+
+        # le reste (ports / voisins) est déjà géré
         return self.can_place_piece(piece, tr, tc, direction)
 
     def generate_candidates(self, tr, tc, direction):
@@ -501,47 +903,43 @@ class Game:
 
         return candidates[:3]
 
-    def can_place_piece(self, piece, tr, tc, from_dir):
-        """Teste si une pièce peut être placée en (tr, tc) en respectant les règles.
 
-        Règles vérifiées :
-        1) La pièce doit avoir un port vers la case d’origine (direction opposée).
-        2) Aucun port de la pièce ne doit sortir du plateau.
-        3) Compatibilité des ports avec les voisins déjà posés (réciprocité).
-
-        Args:
-            piece: La pièce candidate.
-            tr: Ligne cible.
-            tc: Colonne cible.
-            from_dir: Direction depuis laquelle on arrive ('up','down','left','right').
-
-        Returns:
-            True si le placement est légal ; False sinon.
-        """ 
-    # 1) la piece doit avoir un port vers l'origin
-        if not piece.ports.get(OPP[from_dir], False):
+    def can_place_with_ports(self, ports, tr, tc, from_dir):
+        # 1) la pièce doit avoir un port vers l'origine
+        if not ports.get(OPP[from_dir], False):
             return False
 
-        # 2) aucune port peuve sortir du tableau
-        for d,(dr,dc) in DIRS.items():
-            if piece.ports.get(d, False):
-                nr, nc = tr+dr, tc+dc
+        # 2) aucun port ne doit sortir du plateau
+        for d, (dr, dc) in DIRS.items():
+            if ports.get(d, False):
+                nr, nc = tr + dr, tc + dc
                 if not self.in_bounds(nr, nc):
                     return False
 
-        # 3) compatibilité avec les voisins qui sont déjà placées
-        for d,(dr,dc) in DIRS.items():
-            nr, nc = tr+dr, tc+dc
+        # 3) compatibilité avec les voisins déjà posés
+        for d, (dr, dc) in DIRS.items():
+            nr, nc = tr + dr, tc + dc
             if self.in_bounds(nr, nc):
-                neigh = self.grid[nr][nc].piece
-                if neigh is not None:
-                    # si la piece a une port vers le voisin, le voisin doit avoir un porte vers elle
-                    if piece.ports.get(d, False) and not neigh.ports.get(OPP[d], False):
+                neigh_cell = self.grid[nr][nc]
+                neigh_piece = neigh_cell.piece
+                if neigh_piece is not None:
+                    neigh_ports = self.cell_ports(nr, nc)
+                    if ports.get(d, False) and not neigh_ports.get(OPP[d], False):
                         return False
-                    # si le voisin a une porte donnant sur cette pièce, celle-ci doit renvoyer la porte
-                    if neigh.ports.get(OPP[d], False) and not piece.ports.get(d, False):
+                    if neigh_ports.get(OPP[d], False) and not ports.get(d, False):
                         return False
         return True
+    
+    def can_place_piece(self, piece, tr, tc, from_dir):
+        """
+        Retourne True si au moins une rotation permet de placer la pièce.
+        (la rotation exacte sera choisie ailleurs)
+        """
+        for rot in range(4):
+            ports = self.piece_ports_with_rotation(piece, rot)
+            if self.can_place_with_ports(ports, tr, tc, from_dir):
+                return True
+        return False
 
 
     def neighbor_target(self, direction):
@@ -782,79 +1180,97 @@ class Game:
                 self.turn_msg += " Found 3 steps."
 
     def confirm_selection(self):
-        """Confirme la pièce choisie, la pose et gère les effets associés.
-
-        Débite le coût en gemmes si nécessaire, place la pièce, initialise le niveau
-        de verrou des portes, applique les effets 'on_draw', puis tente d’entrer
-        dans la nouvelle salle.
-
-        Returns:
-            None
-        """
+        """Confirme la pièce choisie, la pose et gère les effets associés."""
+        # 1) sécurité : on vérifie qu'on est bien en mode sélection
         if not self.selection_mode or not self.target_cell:
             return
+
+        # 2) pièce choisie par le joueur
         index = self.selection_pos
+        if index < 0 or index >= len(self.candidates):
+            return  # par sécurité
+
         choice = self.candidates[index]
-        tr,tc = self.target_cell
-        # check gem cost
-        if choice.cout>0:
-            if self.inventory.objets_consommables.get('gemmes',0) < choice.cout:
+        tr, tc = self.target_cell
+
+        # 3) direction depuis le joueur vers la nouvelle case
+        dr = tr - self.player_r
+        dc = tc - self.player_c
+        dir_map = {(-1, 0): 'up', (1, 0): 'down', (0, -1): 'left', (0, 1): 'right'}
+        direction = dir_map.get((dr, dc))
+
+        # 4) trouver une rotation valide pour cette pièce
+        chosen_rot = None
+        if direction is not None:
+            for rot in range(4):
+                ports = self.piece_ports_with_rotation(choice, rot)
+                if self.can_place_with_ports(ports, tr, tc, direction):
+                    chosen_rot = rot
+                    break
+
+        if chosen_rot is None:
+            # normalement ne devrait pas arriver si les candidats sont bien filtrés
+            self.turn_msg = "No valid orientation for that room here."
+            return
+
+        # 5) payer le coût en gemmes si besoin
+        if choice.cout > 0:
+            if self.inventory.objets_consommables.get('gemmes', 0) < choice.cout:
                 self.turn_msg = "Not enough gems to choose that room."
                 return
             else:
                 self.inventory.retirer('gemmes', choice.cout)
-        # place the piece
-        self.grid[tr][tc].piece = choice
-        # set door locks based on target row
+
+        # 6) poser la pièce dans la grille avec la bonne rotation
+        cell = self.grid[tr][tc]
+        cell.piece = choice
+        cell.rotation = chosen_rot
+
+        # 7) calculer le verrou de la porte
         lock_level = self.door_lock_for_target_row(tr)
-        # set both sides door lock (from current cell to placed cell)
+
+        # mettre à jour les portes dans les deux sens
         cur = self.grid[self.player_r][self.player_c]
-        # figure direction
-        dr = tr - self.player_r
-        dc = tc - self.player_c
-        dir_map = {( -1,0):'up',(1,0):'down',(0,-1):'left',(0,1):'right'}
-        direction = dir_map.get((dr,dc))
         if direction:
             cur.doors[direction] = lock_level
-            self.grid[tr][tc].doors[self.opposite(direction)] = lock_level
-        # remove chosen instance from deck (one occurrence)
+            cell.doors[self.opposite(direction)] = lock_level
+
+        # 8) retirer UNE occurrence de cette pièce du deck
         try:
             self.deck.remove(choice)
         except ValueError:
             pass
-        # apply on_draw effects
+
+        # 9) appliquer l'effet "on_draw" éventuel
         od = choice.obj.get('on_draw') if choice.obj else None
         if od:
             typ = od.get('type')
             if typ == 'gem_always':
-                self.inventory.ajouter_conso('gemmes',1)
+                self.inventory.ajouter_conso('gemmes', 1)
                 self.turn_msg = "You drew a room and found a gem!"
             elif typ == 'inc_green_weight':
-                # simplistic: add extra copy of green-ish rooms to deck to increase chance
-                greens = [p for p in ROOM_CATALOG if p.couleur=='green']
+                greens = [p for p in ROOM_CATALOG if p.couleur == 'green']
                 if greens:
                     self.deck.extend(random.choices(greens, k=2))
                     self.turn_msg = "This veranda increases green rooms in the deck."
             elif typ == 'inc_find_objects':
-                # set a permanent that increases find chance (simulate)
                 self.inventory.ajouter_perm('patte_de_lapin')
                 self.turn_msg = "You found something increasing find chances (patte_de_lapin)."
             elif typ == 'inc_fire_weight':
-                # add furnace-like pieces
-                fires = [p for p in ROOM_CATALOG if p.nom=='Furnace']
+                fires = [p for p in ROOM_CATALOG if p.nom == 'Furnace']
                 if fires:
                     self.deck.extend(random.choices(fires, k=2))
                     self.turn_msg = "Furnace makes furnace-like rooms more common in the deck."
-        
         else:
-            self.turn_msg=f"Placed {choice.nom} at row {tr},lock={lock_level}"
-        
-        # exit selection mode and enter the new room (move)
+            self.turn_msg = f"Placed {choice.nom} at row {tr}, lock={lock_level}"
+
+        # 10) sortir du mode sélection
         self.selection_mode = False
         self.candidates = []
         self.selection_pos = 0
         self.target_cell = None
 
+        # 11) enfin, essayer d'entrer dans la nouvelle salle
         if direction:
             self.open_door_or_move(direction)
 
@@ -1038,10 +1454,16 @@ def draw_game(screen, game):
             if cell.piece:
                 img = load_image(cell.piece.image_id)
                 if img:
-                    screen.blit(img, (rect.x, rect.y))
+                    # rotation en degrés dans le sens horaire -> Pygame tourne dans le sens anti-horaire
+                    angle = -90 * cell.rotation   # 0, -90, -180, -270
+                    img_rot = pygame.transform.rotate(img, angle)
+                    # recentrer (la taille peut changer)
+                    img_rect = img_rot.get_rect(center=rect.center)
+                    screen.blit(img_rot, img_rect.topleft)
                 else:
                     # colored placeholder based on piece color
-                    clr = {'green':(60,130,60),'purple':(110,60,110),'orange':(200,120,60),'blue':(60,90,160)}.get(cell.piece.couleur,(120,120,120))
+                    clr = {'green':(60,130,60),'purple':(110,60,110),'orange':(200,120,60),'blue':(60,90,160),'yellow': (190,170,60),
+    'red':    (180,60,60),}.get(cell.piece.couleur,(120,120,120))
                     pygame.draw.rect(screen, clr, rect)
                     txt = FONT.render(cell.piece.nom[:10], True, (255,255,255))
                     screen.blit(txt, (rect.x+4, rect.y+4))
@@ -1109,37 +1531,62 @@ def draw_game(screen, game):
     # bottom message
     msgsurf = FONT.render("Msg: " + game.turn_msg, True, (240,240,240))
     screen.blit(msgsurf, (panel_x, WINDOW_H - 40))
+    
     # selection mode overlay
     if game.selection_mode:
-        # darken
+        # fond assombri
         s = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
-        s.fill((0,0,0,150))
-        screen.blit(s, (0,0))
-        # small panel at center
-        w = 520
-        h = 160
-        px = (WINDOW_W - w)//2
-        py = (WINDOW_H - h)//2
-        pygame.draw.rect(screen, (50,50,60), (px,py,w,h))
-        pygame.draw.rect(screen, (200,200,220), (px,py,w,24))
-        screen.blit(BIG.render("Choose a room (ENTER) or R to redraw (spend die)", True, (0,0,0)), (px+6,py))
-        # display candidates
-        cx = px+10
-        cy = py+36
-        for i,cand in enumerate(game.candidates):
-            crect = pygame.Rect(cx + i*(w//3), cy, (w//3)-10, h-56)
-            pygame.draw.rect(screen, (80,80,90), crect)
-            # image or placeholder
-            img = load_image(cand.image_id, size=(crect.w-8, crect.h-30))
+        s.fill((0, 0, 0, 150))
+        screen.blit(s, (0, 0))
+
+        # panneau central
+        w = 620
+        h = 230
+        px = (WINDOW_W - w) // 2
+        py = (WINDOW_H - h) // 2
+        pygame.draw.rect(screen, (50, 50, 60), (px, py, w, h), border_radius=10)
+        pygame.draw.rect(screen, (200, 200, 220), (px, py, w, 30), border_radius=10)
+        screen.blit(
+            BIG.render("Choose a room (ENTER) or R to redraw (spend die)", True, (0, 0, 0)),
+            (px + 8, py + 4)
+        )
+
+        # cartes de rooms
+        cx = px + 20
+        cy = py + 45
+        card_w = (w - 60) // 3 # 3 cartes + marges
+        card_h = h - 80
+
+        for i, cand in enumerate(game.candidates):
+            crect = pygame.Rect(cx + i * (card_w + 10), cy, card_w, card_h)
+            pygame.draw.rect(screen, (80, 80, 90), crect, border_radius=8)
+
+            #vignette carrée propre
+            thumb_size = min(card_w - 20, card_h - 70)  # laisse de la place pour le texte
+            img = load_image(cand.image_id, size=(thumb_size, thumb_size))
             if img:
-                screen.blit(img, (crect.x+4, crect.y+4))
+                img_rect = img.get_rect()
+                img_rect.centerx = crect.centerx
+                img_rect.top = crect.top + 8
+                screen.blit(img, img_rect.topleft)
             else:
-                pygame.draw.rect(screen, (100,100,120), (crect.x+4, crect.y+4, crect.w-8, crect.h-30))
-            # name and cost
-            screen.blit(FONT.render(cand.nom, True, (255,255,255)), (crect.x+6, crect.y+crect.h-24))
-            screen.blit(FONT.render(f"Cost(gem): {cand.cout}  Rarity: {cand.degre_rarete}", True, (210,210,210)), (crect.x+6, crect.y+crect.h-10))
-            if i==game.selection_pos:
-                pygame.draw.rect(screen, (255,255,0), crect, 3)
+                # placeholder carré
+                placeholder = pygame.Rect(0, 0, thumb_size, thumb_size)
+                placeholder.centerx = crect.centerx
+                placeholder.top = crect.top + 8
+                pygame.draw.rect(screen, (100, 100, 120), placeholder)
+
+            display_name = cand.nom if len(cand.nom) <= 18 else cand.nom[:17] + "…"
+            text_y = crect.bottom - 40
+            name_surf = FONT.render(display_name, True, (255, 255, 255))
+            screen.blit(name_surf, (crect.x + 6, text_y))
+            info_surf = FONT.render(
+                f"Cost: {cand.cout}   Rarity: {cand.degre_rarete}", True, (210, 210, 210)
+            )
+            screen.blit(info_surf, (crect.x + 6, text_y + 18))
+            # surbrillance du sélection
+            if i == game.selection_pos:
+                pygame.draw.rect(screen, (255, 255, 0), crect, 3, border_radius=8)
 
 def game_loop():
     """Boucle principale Pygame : gestion des événements, rendu et cycle de jeu.
@@ -1217,7 +1664,3 @@ def game_loop():
 
 if __name__ == "__main__":
     game_loop()      # arranca el juego normal
-
-
-
-
