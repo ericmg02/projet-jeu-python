@@ -503,7 +503,7 @@ ROOM_CATALOG.extend([
     make_piece("Gymnasium", "Gymnasium_Icon.png",
                {'up': False, 'down': True, 'left': True, 'right': True},
                0, 1, None, "red",
-               {'on_enter': {'type': 'food', 'amount': -2}}),
+               {'on_enter': {'type': 'food', 'amount': +2}}),
 
     make_piece("Hallway", "Hallway_Icon.png",
                {'up': False, 'down': True, 'left': True, 'right': True},
@@ -1215,9 +1215,13 @@ class Game:
                 self.inventory.ajouter_conso('pieces', amt)
                 self.turn_msg = f"Found {amt} coins!"
             elif t == 'food':
-                amt = effects.get('amount',0)
+                amt = effects.get('amount', 0)
                 self.inventory.ajouter_conso('pas', amt)
-                self.turn_msg = f"Ate food and regains {amt} steps!"
+
+                if amt >= 0:
+                    self.turn_msg = f"Ate food and regains {amt} steps!"
+                else:
+                    self.turn_msg = f"Ate bad food and loses {-amt} steps!"
             elif t == 'goal':
                 self.turn_msg = "You reached the Antechamber! You win!"
                 self.running = False
