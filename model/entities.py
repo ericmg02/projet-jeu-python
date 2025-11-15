@@ -665,7 +665,7 @@ ROOM_CATALOG.extend([
                1, 2, None, "blue",
                {'on_enter': {'type': 'view_inventory'}}),
 
-    make_piece("Servant's Quarters", "Servant's_Quarters_Icon.png",
+    make_piece("Servant's Quarters", "Servant_Quarters_Icon.png",
                {'up': False,  'down': True, 'left': False, 'right': False},
                0, 2, None, "purple",
                {'on_enter': {'type': 'gain_keys_per_bedroom'}}),
@@ -1247,11 +1247,17 @@ class Game:
                     cell.coins_collected = True
 
             elif t == 'food':
-                amt = effects.get('amount',0)
-                self.inventory.ajouter_conso('pas', amt)
-                self.turn_msg = f"Ate food and regains {amt} steps!"
-            elif t == 'steps_gain':
                 amt = effects.get('amount', 0)
+
+                # bonus de nourriture appliqué une seule fois par salle
+                already_eaten = getattr(cell, "food_eaten", False)
+                if already_eaten:
+                    # on ne redonne pas de pas si on revient
+                    self.turn_msg = f"Entered {p.nom}."
+                else:
+                    self.inventory.ajouter_conso('pas', amt)
+                    self.turn_msg = f"Ate food and regains {amt} steps!"
+                    cell.food_eaten = True
 
                 #bonus appliqué une seule fois par salle
                 already_used = getattr(cell, "steps_bonus_used", False)
@@ -1497,7 +1503,8 @@ class Game:
             # a) mouvement vers une piece, est ce que je peut ouvrir la porte?
             if cell.piece is not None:
                 cur_cell = self.grid[self.player_r][self.player_c]
-                lock = cur_cell.doors.get(d) #convention: verrou coté salle actuelle
+                #convention : verrou côté salle actuelle
+                lock = cur_cell.doors.get(d)
                 lock = 0 if lock is None else lock
                 if lock == 0:
                     return True
