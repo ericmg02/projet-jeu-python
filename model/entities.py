@@ -160,11 +160,16 @@ LOOT_TABLE_DIG=[
     ("cles",1,0.20),
     ("gemmes",1,0.20),
 ]
-def _roll_loot(table):
+def _roll_loot(table,has_detector=False):
     "Returns a list of (resource, amount) according to independent probabilities. If nothing falls, gives consolation coins" 
     out=[]
     for name,amt,p in table:
-        if random.random()<p:
+        if has_detector and name in ("cles", "pieces"):
+            eff_p = min(1.0, p + 0.15)   # +15% but with more than 100%
+        else:
+            eff_p = p
+
+        if random.random()<eff_p:
             out.append((name,amt))
     if not out:
             out=[('pieces',5)]
@@ -223,8 +228,9 @@ class Chest(Interactable):
         else:
             game.turn_msg = "A chest is here. You need a key or the hammer."
             return
-
-        loot = _roll_loot(LOOT_TABLE_CHEST)
+        
+        has_detector = game.inventory.objets_permanents.get("detecteur_de_metaux", False)
+        loot = _roll_loot(LOOT_TABLE_CHEST,has_detector=has_detector)
         self.opened = True
         game.turn_msg = msg
         for name, amt in loot:
@@ -249,8 +255,9 @@ class Casier(Interactable):
         else:
             game.turn_msg = "A locker is here. You need a key."
             return
-
-        loot = _roll_loot(LOOT_TABLE_CASIER)
+        
+        has_detector = game.inventory.objets_permanents.get("detecteur_de_metaux", False)
+        loot = _roll_loot(LOOT_TABLE_CASIER,has_detector=has_detector)
         self.opened = True
         game.turn_msg = "Locker opened"
         for name, amt in loot:
@@ -272,8 +279,9 @@ class DigSite(Interactable):
         if not game.inventory.objets_permanents.get("pelle"):
             game.turn_msg = "You found a dig site. You need a shovel."
             return
-
-        loot = _roll_loot(LOOT_TABLE_DIG)
+        
+        has_detector = game.inventory.objets_permanents.get("detecteur_de_metaux", False)
+        loot = _roll_loot(LOOT_TABLE_DIG,has_detector=has_detector)
         self.opened = True
         game.turn_msg = "You dug the site"
         for name, amt in loot:
@@ -347,7 +355,7 @@ ROOM_CATALOG.extend([
     make_piece("Boiler Room", "Boiler_Room_Icon.png",
                {'up': False, 'down': True, 'left': True, 'right': True},
                1, 2, None, "blue",
-               {}),
+               {'on_enter':{'type':'marteau'}}),
 
     make_piece("Bookshop", "Bookshop_Icon.png",
                {'up': False, 'down': True, 'left': True, 'right': False},
@@ -455,7 +463,7 @@ ROOM_CATALOG.extend([
     make_piece("Garage", "Garage_Icon.png",
                {'up': False, 'down': True, 'left': False, 'right': False},
                0, 1, 'edge', "blue",
-               {'on_enter': {'type': 'gain_keys', 'amount': 3}}),
+               {'on_enter': {'type': 'detecteur_de_metaux', 'amount': 3}}),
 
     make_piece("Great Hall", "Great_Hall_Icon.png",
                {'up': True, 'down': True, 'left': True, 'right': True},
@@ -494,7 +502,7 @@ ROOM_CATALOG.extend([
     make_piece("Laboratory", "Laboratory_Icon.png",
                {'up': False, 'down': True, 'left': True, 'right': False},
                1, 2, None, "blue",
-               {}),
+               {'on_enter':{'type':'detecteur_de_metaux'}}),
 
     make_piece("Laundry Room", "Laundry_Room_Icon.png",
                {'up': False, 'down': True, 'left': False, 'right': False},
@@ -514,7 +522,7 @@ ROOM_CATALOG.extend([
     make_piece("Locker Room", "Locker_Room_Icon.png",
                {'up': True, 'down': True, 'left': False,  'right': False},
                0, 1, None, "blue",
-               {'on_enter': {'type': 'spread_keys'}}),
+               {'on_enter': {'type': 'kit_de_crochetage'}}),
 
     make_piece("Locksmith", "Locksmith_Icon.png",
                {'up': False, 'down': True,  'left': False, 'right': False},
@@ -579,7 +587,7 @@ ROOM_CATALOG.extend([
     make_piece("Parlor", "Parlor_Icon.png",
                {'up': False, 'down': True, 'left': True,  'right': False},
                0, 1, None, "blue",
-               {}),
+               {'on_enter':{'type':'kit_de_crochetage'}}),
 
     make_piece("Passageway", "Passageway_Icon.png",
                {'up': True,  'down': True,  'left': True,  'right': True},
@@ -649,12 +657,12 @@ ROOM_CATALOG.extend([
     make_piece("Spare Room", "Spare_Room_Icon.png",
                {'up': True, 'down': True, 'left': False,  'right': False},
                0, 1, None, "blue",
-               {}),
+               {'on_enter':{'type':'kit_de_crochetage'}}),
 
     make_piece("Storeroom", "Storeroom_Icon.png",
                {'up': False,  'down': True,  'left': False, 'right': False},
                0, 1, None, "blue",
-               {'on_enter': {'type': 'storeroom_loot'}}),
+               {'on_enter': {'type': 'pelle'}}),
 
     make_piece("Study", "Study_Icon.png",
                {'up': False, 'down': True, 'left': False,  'right': False},
@@ -696,31 +704,6 @@ def weighted_sample_no_replacement(pool, k):
     return selected
 
 # Game state containers
-class Cell:
-    """Représente une case du plateau de jeu.
-
-        Chaque cellule peut contenir une pièce de type `Piece`, un ensemble de portes
-        (avec leurs niveaux de verrou), et éventuellement un objet interactif
-        (`Interactable`) comme un coffre, un casier ou un site de fouille.
-
-        Attributs:
-            piece (Piece | None): La pièce placée sur cette case, ou None si vide.
-            doors (dict[str, int | None]): Dictionnaire des portes adjacentes,
-                associant chaque direction ('up','down','left','right') à un niveau
-                de verrou :
-                    - 0 : porte ouverte
-                    - 1 : verrou faible
-                    - 2 : verrou fort
-                    - None : pas de porte
-            interactable (Interactable | None): Objet interactif présent sur la case,
-                ou None s’il n’y en a pas.
-        """    
-    def __init__(self):
-        self.piece = None
-        # doors stored as dict of lock level for each direction when created: 0/1/2
-        self.doors = {'up':None,'down':None,'left':None,'right':None}
-        self.interactable=None #type interactable or None
-
 DIRS = {'up':(-1,0), 'down':(1,0), 'left':(0,-1), 'right':(0,1)}
 OPP  = {'up':'down','down':'up','left':'right','right':'left'}
 DIR_ORDER = ['up', 'right', 'down', 'left']
@@ -740,6 +723,24 @@ def rotated_ports(ports_dict, quarter_turns):
     return new_ports
 
 class Cell:
+    """Représente une case du plateau de jeu.
+
+    Chaque cellule peut contenir une pièce de type `Piece`, un ensemble de portes
+    (avec leurs niveaux de verrou), et éventuellement un objet interactif
+    (`Interactable`) comme un coffre, un casier ou un site de fouille.
+
+    Attributs:
+        piece (Piece | None): La pièce placée sur cette case, ou None si vide.
+        doors (dict[str, int | None]): Dictionnaire des portes adjacentes,
+            associant chaque direction ('up','down','left','right') à un niveau
+            de verrou :
+                - 0 : porte ouverte
+                - 1 : verrou faible
+                - 2 : verrou fort
+                - None : pas de porte
+        interactable (Interactable | None): Objet interactif présent sur la case,
+            ou None s’il n’y en a pas.
+    """  
     def __init__(self):
         self.piece = None
         self.rotation = 0   # 0,1,2,3 → 0°, 90°, 180°, 270°
@@ -1010,9 +1011,6 @@ class Game:
                     # kit ouvre niveau 1 gratuitement
                     self.turn_msg = "Used kit to open a level 1 door."
                     opened = True
-                elif self.inventory.objets_permanents.get("marteau") and lock <= 2:
-                    # marteau : tu as laissé comme non utilisé pour les portes
-                    pass
                 else:
                     if self.inventory.objets_consommables.get("cles", 0) > 0:
                         self.inventory.retirer("cles", 1)
@@ -1127,8 +1125,7 @@ class Game:
                 self.turn_msg = "Back at the Entrance."
             elif t == 'spawn':
                 what = effects.get('spawn')
-                if isinstance(cell.interactable, Interactable) and not cell.interactable.opened:
-                    
+                if isinstance(cell.interactable, Interactable) and not cell.interactable.opened:                    
                     return
                 if what == 'chest':
                     cell.interactable = Chest()
@@ -1139,6 +1136,29 @@ class Game:
             
                 if cell.interactable:
                     self.turn_msg = f"You found {cell.interactable.label()}! Press E to interact."
+            elif t=='detecteur_de_metaux':
+                self.inventory.ajouter_perm('detecteur_de_metaux')
+                self.turn_msg='You found a metal detector! Keys and coins will be easier to find.'
+            elif t=='kit_de_crochetage':
+                if not self.inventory.objets_permanents.get('kit_de_crochetage',False):
+                    self.inventory.ajouter_perm('kit_de_crochetage')
+                    self.turn_msg='You found a kit de crochetage! Level-1 doors can be opened for free.'
+                else:
+                    self.turn_msg='You already have a kit de crochetage.'
+            
+            elif t=='pelle':
+                if not self.inventory.objets_permanents.get('pelle',False):
+                    self.inventory.ajouter_perm('pelle')
+                    self.turn_msg='You found a shovel! You can now dig at dig sites.'
+                else:
+                    self.turn_msg='You already have a shovel.'
+            elif t=='marteau':
+                if not self.inventory.objets_permanents.get('marteau',False):
+                    self.inventory.ajouter_perm('marteau')
+                    self.turn_msg='You found a hammer! You can now break chests.'
+                else:
+                    self.turn_msg='You already have a hammer.'
+
             elif t=='shop':
                 self.turn_msg='You entered the shop. Press E to trade.'
                 self.in_shop=True
@@ -1151,10 +1171,18 @@ class Game:
 
         # possibility to find gems or items randomly
         # if detecteur_de_metaux increases keys/coins chance; patte_de_lapin increases chance to find items
+        # patte_de_lapin : augmente la probabilité de trouver quelque chose
+        # detecteur_de_metaux : biaise vers cles / pieces
         base_find = random.random()
-        if base_find < 0.08 + (0.05 if self.inventory.objets_permanents.get('patte_de_lapin') else 0):
-            # randomly give something
-            found = random.choice(['gemmes','cles','des','pieces','pas'])
+        lapin_bonus = 0.05 if self.inventory.objets_permanents.get('patte_de_lapin') else 0.0
+        if base_find < 0.08 + lapin_bonus:
+            has_detector = self.inventory.objets_permanents.get('detecteur_de_metaux', False)
+            if has_detector:
+                # higher probability of finding keys and pieces
+                pool = ['gemmes', 'cles', 'cles', 'pieces', 'pieces', 'des', 'pas']
+            else:
+                pool = ['gemmes','cles','des','pieces','pas']
+            found = random.choice(pool)
             if found=='gemmes':
                 self.inventory.ajouter_conso('gemmes',1)
                 self.turn_msg += " Found 1 gem."
