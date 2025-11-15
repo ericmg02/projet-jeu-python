@@ -550,7 +550,7 @@ ROOM_CATALOG.extend([
                1, 2, 'edge', "yellow",
                {'on_enter': {'type': 'shop'}}),
 
-    make_piece("Maid's Chamber", "Maid's_Chamber_Icon.png",
+    make_piece("Maid's Chamber", "Maid_Chamber_Icon.png",
                {'up': False, 'down': True, 'left': True,  'right': False},
                0, 2, None, "red",
                {'on_draw': {'type': 'dec_find_objects'}}),
