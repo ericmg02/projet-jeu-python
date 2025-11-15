@@ -830,6 +830,9 @@ class Cell:
         self.rotation = 0   # 0,1,2,3 → 0°, 90°, 180°, 270°
         self.doors = {'up':None,'down':None,'left':None,'right':None}
         self.interactable=None
+        #flags poru des effets uniques
+        self.steps_bonus_used = False
+        self.coins_collected = False
 
 
 class Game:
@@ -1086,41 +1089,63 @@ class Game:
 
         # --- CASE 1 : la case a déjà une pièce -> déplacement ---
         if cell.piece is not None:
-            # check door lock (si la porte était définie)
-            lock = cell.doors.get(self.opposite(direction))
+            cur_cell = self.grid[self.player_r][self.player_c]
+
+            #vérifier qu'il y a bien une porte entre les deux salles
+            cur_ports = self.cell_ports(self.player_r, self.player_c)
+            tgt_ports = self.cell_ports(tr, tc)
+            if not (cur_ports.get(direction, False) and
+                    tgt_ports.get(self.opposite(direction), False)):
+                # pas de porte → pas de déplacement possible
+                self.turn_msg = "No door in that direction."
+                return
+
+            #lire le verrou du point de vue de la salle actuelle
+            lock = cur_cell.doors.get(direction)
             if lock is None:
                 lock = 0
 
             if lock > 0:
                 opened = False
-                if self.inventory.objets_permanents.get("kit_de_crochetage") and lock == 1:
-                    # kit ouvre niveau 1 gratuitement
-                    self.turn_msg = "Used kit to open a level 1 door."
+
+                # Lock niveau 1 : kit fonctionne
+                if lock == 1 and self.inventory.objets_permanents.get("kit_de_crochetage"):
+                    self.turn_msg = "Door lvl 1: kit used."
                     opened = True
+
+                # Sinon, essayer une clé
+                elif self.inventory.objets_consommables.get("cles", 0) > 0:
+                    # Niveau 1 ou 2 : la clé marche toujours
+                    self.inventory.retirer("cles", 1)
+
+                    if lock == 1:
+                        self.turn_msg = "Door lvl 1: key used."
+                    else:  # lock == 2
+                        self.turn_msg = "Door lvl 2: key used (kit doesn't work)."
+
+                    opened = True
+
                 else:
-                    if self.inventory.objets_consommables.get("cles", 0) > 0:
-                        self.inventory.retirer("cles", 1)
-                        self.turn_msg = "Used a key to open the door."
-                        opened = True
+                    # Pas de kit ni clé
+                    if lock == 1:
+                        self.turn_msg = "Door lvl 1: locked. Need key or kit."
                     else:
-                        self.turn_msg = "Door is locked and you have no key/kit."
-                        return
+                        self.turn_msg = "Door lvl 2: locked. Need a key (kit doesn't work)."
+                    return
 
+                # Si la porte s'est ouverte : on met à 0 des deux côtés
                 if opened:
-                    cur_cell = self.grid[self.player_r][self.player_c]
-                    target_cell = self.grid[tr][tc]
-                    # porte ouverte dans les deux sens
                     cur_cell.doors[direction] = 0
-                    target_cell.doors[self.opposite(direction)] = 0
+                    cell.doors[self.opposite(direction)] = 0
 
-            # déplacement consomme 1 pas
+            #déplacer le joueur (coût 1 pas)
             if self.inventory.objets_consommables["pas"] <= 0:
                 self.turn_msg = "No steps left! You can't move."
                 return
 
             self.inventory.retirer("pas", 1)
             self.player_r, self.player_c = tr, tc
-            self.in_shop=False
+            self.in_shop = False
             self.on_enter(cell)
             return
 
@@ -1211,17 +1236,34 @@ class Game:
         if effects:
             t = effects.get('type')
             if t == 'coins':
-                amt = effects.get('amount',0)
-                self.inventory.ajouter_conso('pieces', amt)
-                self.turn_msg = f"Found {amt} coins!"
-            elif t == 'food':
                 amt = effects.get('amount', 0)
-                self.inventory.ajouter_conso('pas', amt)
 
-                if amt >= 0:
-                    self.turn_msg = f"Ate food and regains {amt} steps!"
+                if cell.coins_collected:
+                    #on reprend pas les pièces à chaque passage
+                    self.turn_msg = f"Entered {p.nom}."
                 else:
-                    self.turn_msg = f"Ate bad food and loses {-amt} steps!"
+                    self.inventory.ajouter_conso('pieces', amt)
+                    self.turn_msg = f"Found {amt} coins!"
+                    cell.coins_collected = True
+
+            elif t == 'food':
+                amt = effects.get('amount',0)
+                self.inventory.ajouter_conso('pas', amt)
+                self.turn_msg = f"Ate food and regains {amt} steps!"
+            elif t == 'steps_gain':
+                amt = effects.get('amount', 0)
+
+                #bonus appliqué une seule fois par salle
+                already_used = getattr(cell, "steps_bonus_used", False)
+                if already_used:
+                    #pas de bonus supplémentaire si on revient dans la même room
+                    self.turn_msg = f"Entered {p.nom}."
+                else:
+                    # On compense aussi le coût de déplacement (-1 pas)
+                    # pour que le gain net soit bien de `amt` pas.
+                    self.inventory.ajouter_conso('pas', amt + 1)
+                    self.turn_msg = f"You feel rested and gain {amt} extra steps."
+                    cell.steps_bonus_used = True
             elif t == 'goal':
                 self.turn_msg = "You reached the Antechamber! You win!"
                 self.running = False
