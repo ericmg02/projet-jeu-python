@@ -1496,7 +1496,8 @@ class Game:
 
             # a) mouvement vers une piece, est ce que je peut ouvrir la porte?
             if cell.piece is not None:
-                lock = cell.doors.get(OPP[d])
+                cur_cell = self.grid[self.player_r][self.player_c]
+                lock = cur_cell.doors.get(d) #convention: verrou coté salle actuelle
                 lock = 0 if lock is None else lock
                 if lock == 0:
                     return True
