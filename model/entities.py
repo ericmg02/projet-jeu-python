@@ -323,7 +323,7 @@ GOAL_C = COLS // 2      # même colonne que l'Entrance Hall
 MARGIN = 3
 
 
-IMAGES_FOLDER = "pictures/rooms/"
+IMAGES_FOLDER = "model/pictures/rooms/"
 
 pygame.init()
 FONT = pygame.font.SysFont("Arial", 16)
@@ -489,7 +489,7 @@ ROOM_CATALOG.extend([
 
     make_piece("Garage", "Garage_Icon.png",
                {'up': False, 'down': True, 'left': False, 'right': False},
-               0, 1, 'edge', "blue",
+               0, 1, 'corner', "blue",
                {'on_enter': {'type': 'detecteur_de_metaux'}}),
 
     make_piece("Great Hall", "Great_Hall_Icon.png",
@@ -904,6 +904,17 @@ class Game:
         self.scattered_coins=defaultdict(int)
         self.scattered_gems=defaultdict(int)
 
+        # Popup pour portes verrouillées : demander si on utilise une clé
+        self.lock_prompt_active = False
+        self.lock_prompt_dir = None
+        self.lock_prompt_target = None  # (row, col) de la salle derrière la porte
+        self.lock_prompt_lock = 0
+        self.lock_prompt_choice = 0  # 0 = Oui (utiliser la clé), 1 = Non (garder la clé)
+
+        # pour effet game over
+        self.game_over = False
+        self.game_over_reason = ""  
+
     def in_bounds(self, r,c):
         """Vérifie si des coordonnées sont dans les limites de la grille.
 
@@ -1057,31 +1068,44 @@ class Game:
     def door_lock_for_target_row(self, target_row):
         """Calcule un niveau de verrou (0/1/2) selon la ligne cible.
 
-        Les portes ont plus de chances d’être verrouillées en haut du plateau.
-
-        Args:
-            target_row: Index de ligne de la case cible.
-
-        Returns:
-            int: 0 (déverrouillée), 1 (verrou faible), ou 2 (verrou fort).
-        
+        Version adoucie :
+        - Les 2 premières lignes en partant du bas sont quasiment toujours ouvertes.
+        - Les niveaux 2 commencent à apparaître au milieu, et deviennent fréquents en haut.
         """
-        # linear mapping: bottom row -> 0, top row -> 2
-        if ROWS <=1:
+
+        # Sécurité : plateau dégénéré
+        if ROWS <= 1:
             return 0
-        #distance from 'grown', 0 in bottom, 1 on top
-        t = (ROWS-1 - target_row) / (ROWS-1) 
-        if target_row==ROWS-1:
-            return 0 #first row always 0
-        if target_row==0:
-            return 2 #last row always 0
-        p2=0.1+0.7*t
-        p0=0.7-0.6*t
-        p1=max(0.0,1.0-p0-p2)
-        r=random.random()
-        if r<p0:
+
+        # Ligne du bas (Entrance) : jamais de verrou
+        if target_row == ROWS - 1:
             return 0
-        elif r<p0+p1:
+
+        # Ligne du haut (Antechamber) : toujours très verrouillé
+        if target_row == 0:
+            return 2
+        
+        row_probs = {
+            8: (1.0, 0.0, 0.0), # juste au-dessus de l'entrée  tout ouvert
+            7: (0.8, 0.2, 0.0),   # un peu de lvl 1
+            6: (0.6, 0.3, 0.1),  # très rarement lvl 2
+            5: (0.4, 0.4, 0.2),
+            4: (0.25, 0.4, 0.35),
+            3: (0.15, 0.35, 0.5),
+            2: (0.1, 0.3, 0.6),
+            1: (0.05, 0.25, 0.7),
+        }
+
+        #si ROWS a changé et que la ligne n'est pas dans la table, on fallback doux
+        if target_row not in row_probs:
+            p0, p1, p2 = 0.5, 0.3, 0.2
+        else:
+            p0, p1, p2 = row_probs[target_row]
+
+        r = random.random()
+        if r < p0:
+            return 0
+        elif r < p0 + p1:
             return 1
         else:
             return 2
@@ -1120,37 +1144,34 @@ class Game:
                 lock = 0
 
             if lock > 0:
-                opened = False
-
-                # Lock niveau 1 : kit fonctionne
+                # Cas 1 : niveau 1 avec kit -> on l'utilise automatiquement (gratuit)
                 if lock == 1 and self.inventory.objets_permanents.get("kit_de_crochetage"):
                     self.turn_msg = "Door lvl 1: kit used."
-                    opened = True
-
-                # Sinon, essayer une clé
-                elif self.inventory.objets_consommables.get("cles", 0) > 0:
-                    # Niveau 1 ou 2 : la clé marche toujours
-                    self.inventory.retirer("cles", 1)
-
-                    if lock == 1:
-                        self.turn_msg = "Door lvl 1: key used."
-                    else:  # lock == 2
-                        self.turn_msg = "Door lvl 2: key used (kit doesn't work)."
-
-                    opened = True
-
-                else:
-                    # Pas de kit ni clé
-                    if lock == 1:
-                        self.turn_msg = "Door lvl 1: locked. Need key or kit."
-                    else:
-                        self.turn_msg = "Door lvl 2: locked. Need a key (kit doesn't work)."
-                    return
-
-                # Si la porte s'est ouverte : on met à 0 des deux côtés
-                if opened:
                     cur_cell.doors[direction] = 0
                     cell.doors[self.opposite(direction)] = 0
+
+                else:
+                    # Pas de kit utilisable -> on propose d'utiliser une clé via popup
+                    if self.inventory.objets_consommables.get("cles", 0) > 0:
+                        # On ne dépense pas encore la clé, on demande d'abord
+                        self.lock_prompt_active = True
+                        self.lock_prompt_dir = direction
+                        self.lock_prompt_target = (tr, tc)
+                        self.lock_prompt_lock = lock
+                        self.lock_prompt_choice = 0  # par défaut : "Oui"
+
+                        if lock == 1:
+                            self.turn_msg = "Door lvl 1: use a key?"
+                        else:
+                            self.turn_msg = "Door lvl 2: use a key?"
+                        return
+                    else:
+                        # Pas de kit ni clé
+                        if lock == 1:
+                            self.turn_msg = "Door lvl 1: locked. Need key or kit."
+                        else:
+                            self.turn_msg = "Door lvl 2: locked. Need a key (kit doesn't work)."
+                        return
 
             #déplacer le joueur (coût 1 pas)
             if self.inventory.objets_consommables["pas"] <= 0:
@@ -1403,28 +1424,40 @@ class Game:
         # detecteur_de_metaux : biaise vers cles / pieces
         base_find = random.random()
         lapin_bonus = 0.05 if self.inventory.objets_permanents.get('patte_de_lapin') else 0.0
-        if base_find < 0.08 + lapin_bonus:
+
+        # Proba de base augmentée : 15 % + bonus éventuel
+        if base_find < 0.15 + lapin_bonus:
             has_detector = self.inventory.objets_permanents.get('detecteur_de_metaux', False)
-            if has_detector:
-                # higher probability of finding keys and pieces
-                pool = ['gemmes', 'cles', 'cles', 'pieces', 'pieces', 'des', 'pas']
+
+            # Est-ce que le joueur est vraiment à poil pour les portes ?
+            no_keys = self.inventory.objets_consommables.get('cles', 0) == 0
+            no_kit = not self.inventory.objets_permanents.get('kit_de_crochetage', False)
+
+            if no_keys and no_kit:
+                # Situation de galère : on force un pool très favorable aux clés
+                pool = ['cles', 'cles', 'cles', 'pieces', 'pas', 'gemmes']
             else:
-                pool = ['gemmes','cles','des','pieces','pas']
+                if has_detector:
+                    # higher probability of finding keys and pieces
+                    pool = ['gemmes', 'cles', 'cles', 'pieces', 'pieces', 'des', 'pas']
+                else:
+                    pool = ['gemmes', 'cles', 'des', 'pieces', 'pas']
+
             found = random.choice(pool)
-            if found=='gemmes':
-                self.inventory.ajouter_conso('gemmes',1)
+            if found == 'gemmes':
+                self.inventory.ajouter_conso('gemmes', 1)
                 self.turn_msg += " Found 1 gem."
-            elif found=='cles':
-                self.inventory.ajouter_conso('cles',1)
+            elif found == 'cles':
+                self.inventory.ajouter_conso('cles', 1)
                 self.turn_msg += " Found 1 key."
-            elif found=='des':
-                self.inventory.ajouter_conso('des',1)
+            elif found == 'des':
+                self.inventory.ajouter_conso('des', 1)
                 self.turn_msg += " Found 1 die."
-            elif found=='pieces':
-                self.inventory.ajouter_conso('pieces',5)
+            elif found == 'pieces':
+                self.inventory.ajouter_conso('pieces', 5)
                 self.turn_msg += " Found some coins."
-            elif found=='pas':
-                self.inventory.ajouter_conso('pas',3)
+            elif found == 'pas':
+                self.inventory.ajouter_conso('pas', 3)
                 self.turn_msg += " Found 3 steps."
 
     def confirm_selection(self):
@@ -1650,7 +1683,80 @@ class Game:
             gained = f"{item['amount']} steps"
 
         self.turn_msg = f"Bought {item['label']} for {cost} coins. Gained {gained}."
+    def resolve_lock_prompt(self, use_key: bool):
+        """
+        Résout la popup de porte verrouillée.
 
+        Paramètres
+        ----------
+        use_key : bool
+            - True  -> le joueur accepte d'utiliser une clé pour ouvrir la porte.
+            - False -> le joueur refuse, la porte reste verrouillée.
+
+        Comportement
+        ------------
+        - Si le joueur refuse : on ferme simplement la popup et on ne bouge pas.
+        - Si le joueur accepte :
+            * on vérifie qu'il reste bien une clé dans l'inventaire,
+            * on débite 1 clé,
+            * on met le verrou de la porte à 0 des deux côtés,
+            * on consomme 1 "pas" et on déplace le joueur dans la nouvelle room,
+              puis on applique les effets de la room via `on_enter`.
+        """
+        # Si aucune popup n'est active, on ne fait rien (sécurité)
+        if not self.lock_prompt_active or self.lock_prompt_dir is None or self.lock_prompt_target is None:
+            return
+
+        # On récupère les infos mémorisées au moment où la popup a été ouverte
+        direction = self.lock_prompt_dir
+        tr, tc = self.lock_prompt_target
+        lock = self.lock_prompt_lock
+
+        # On réinitialise l'état de la popup
+        self.lock_prompt_active = False
+        self.lock_prompt_dir = None
+        self.lock_prompt_target = None
+
+        # Cas où le joueur choisit "Non" : on garde la clé, la porte reste fermée
+        if not use_key:
+            self.turn_msg = "You decide to keep your key."
+            return
+
+        # Si on arrive ici, le joueur a choisi "Oui" -> on essaie de consommer une clé
+        if self.inventory.objets_consommables.get("cles", 0) <= 0:
+            # Normalement ça ne devrait pas arriver (on vérifie avant d'ouvrir la popup),
+            # mais au cas où l'état a changé entre temps.
+            self.turn_msg = "No key left!"
+            return
+
+        # Débiter 1 clé
+        self.inventory.retirer("cles", 1)
+
+        # Mettre la porte à 0 des deux côtés (ouverte)
+        cur_cell = self.grid[self.player_r][self.player_c]
+        cell = self.grid[tr][tc]
+        cur_cell.doors[direction] = 0
+        cell.doors[self.opposite(direction)] = 0
+
+        # Message en fonction du niveau de verrou
+        if lock == 1:
+            self.turn_msg = "Door lvl 1: key used."
+        else:
+            self.turn_msg = "Door lvl 2: key used."
+
+        # Puis on essaie de déplacer le joueur (il faut des pas)
+        if self.inventory.objets_consommables.get("pas", 0) <= 0:
+            # Porte ouverte mais pas assez de pas pour rentrer
+            self.turn_msg += " But you have no steps left to move."
+            return
+
+        # Consommer 1 pas pour entrer dans la salle
+        self.inventory.retirer("pas", 1)
+        self.player_r, self.player_c = tr, tc
+        self.in_shop = False
+
+        # Appliquer les effets de la nouvelle room
+        self.on_enter(cell)
 
 # -------------------------
 # Pygame rendering
@@ -1845,6 +1951,27 @@ def draw_game(screen, game):
         screen.blit(txt, (text_x, y))
 
         y += 26 
+    #GAme over
+
+    if getattr(game, "game_over", False):
+        s = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 200))
+        screen.blit(s, (0, 0))
+
+        w, h = 500, 160
+        px = (WINDOW_W - w) // 2
+        py = (WINDOW_H - h) // 2
+        pygame.draw.rect(screen, (40,40,50), (px, py, w, h), border_radius=10)
+        pygame.draw.rect(screen, (200,200,220), (px, py, w, 35), border_radius=10)
+
+        title = BIG.render("Game Over", True, (0,0,0))
+        screen.blit(title, (px + 20, py + 5))
+
+        reason = FONT.render(game.game_over_reason, True, (230,230,230))
+        screen.blit(reason, (px + 20, py + 60))
+
+        hint = FONT.render("Press ENTER or ESC to quit", True, (200,200,200))
+        screen.blit(hint, (px + 20, py + 95))
 
     #Shop panel
     if game.in_shop:
@@ -1926,6 +2053,65 @@ def draw_game(screen, game):
             if i == game.selection_pos:
                 pygame.draw.rect(screen, (255, 255, 0), crect, 3, border_radius=8)
 
+
+
+    # --- Popup "Utiliser une clé ?" ---
+    if getattr(game, "lock_prompt_active", False):
+        # fond semi-transparent
+        s = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 180))
+        screen.blit(s, (0, 0))
+
+        # panneau central
+        w, h = 480, 170
+        px = (WINDOW_W - w) // 2
+        py = (WINDOW_H - h) // 2
+
+        pygame.draw.rect(screen, (50, 50, 60), (px, py, w, h), border_radius=10)
+        pygame.draw.rect(screen, (200, 200, 220), (px, py, w, 30), border_radius=10)
+        screen.blit(
+            BIG.render("Locked door", True, (0, 0, 0)),
+            (px + 12, py + 4)
+        )
+
+        # texte principal = message actuel
+        txt = FONT.render(game.turn_msg, True, (230, 230, 230))
+        screen.blit(txt, (px + 20, py + 55))
+
+        # Deux "boutons" Oui / Non
+        btn_w = 140
+        btn_h = 40
+        gap = 40
+
+        # position des boutons
+        total_btn_width = 2 * btn_w + gap
+        base_x = px + (w - total_btn_width) // 2
+        y_btn = py + h - 60
+
+        # bouton Oui (index 0)
+        rect_oui = pygame.Rect(base_x, y_btn, btn_w, btn_h)
+        # bouton Non (index 1)
+        rect_non = pygame.Rect(base_x + btn_w + gap, y_btn, btn_w, btn_h)
+
+        # couleurs des boutons
+        for idx, (rect, label) in enumerate(((rect_oui, "Oui"), (rect_non, "Non"))):
+            # arrière-plan
+            pygame.draw.rect(screen, (80, 80, 95), rect, border_radius=8)
+
+            # bord jaune si sélectionné
+            if game.lock_prompt_choice == idx:
+                pygame.draw.rect(screen, (255, 255, 0), rect, width=3, border_radius=8)
+            else:
+                pygame.draw.rect(screen, (200, 200, 220), rect, width=1, border_radius=8)
+
+            # texte du bouton
+            label_surf = BIG.render(label, True, (255, 255, 255))
+            label_rect = label_surf.get_rect(center=rect.center)
+            screen.blit(label_surf, label_rect.topleft)
+
+
+
+
 def game_loop():
     """Boucle principale Pygame : gestion des événements, rendu et cycle de jeu.
 
@@ -1952,10 +2138,35 @@ def game_loop():
             if ev.type == pygame.QUIT:
                 pygame.quit()
                 return
+
             if ev.type == pygame.KEYDOWN:
+                # ESC : toujours quitter
                 if ev.key == pygame.K_ESCAPE:
                     pygame.quit()
                     return
+
+                # Si Game Over : ENTER / SPACE quittent, le reste = ignoré
+                if game.game_over:
+                    if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        pygame.quit()
+                        return
+                    continue
+
+                # --- Si une popup de porte est active, on gère d'abord ça ---
+                if game.lock_prompt_active:
+                    # Flèches (ou Q/D) pour changer de choix : 0 = Oui, 1 = Non
+                    if ev.key in (pygame.K_LEFT, pygame.K_q):
+                        game.lock_prompt_choice = 0
+                    elif ev.key in (pygame.K_RIGHT, pygame.K_d):
+                        game.lock_prompt_choice = 1
+                    elif ev.key == pygame.K_RETURN:
+                        # ENTER valide le choix courant
+                        use_key = (game.lock_prompt_choice == 0)
+                        game.resolve_lock_prompt(use_key)
+                    # Tant que la popup est ouverte, on ne traite pas les autres inputs
+                    continue
+
+                # --- Sinon, logique normale du jeu ---
                 if game.selection_mode:
                     if ev.key == pygame.K_RETURN:
                         game.confirm_selection()
@@ -1988,19 +2199,18 @@ def game_loop():
                             game.open_door_or_move('left')
                         elif ev.key in (pygame.K_d, pygame.K_RIGHT):
                             game.open_door_or_move('right')
-                        elif ev.key==pygame.K_e:
+                        elif ev.key == pygame.K_e:
                             game.interact_current_cell()
                         elif ev.key == pygame.K_i:
                             # toggle inventory? (we always show)
                             pass
                     
         # check lose condition
-        if game.inventory.objets_consommables.get('pas',0) <= 0:
-            game.turn_msg = "You ran out of steps! Game Over."
-            game.running = False
-        elif not game.selection_mode and not game.has_legal_moves():
-            game.turn_msg = "Bloqué – plus de coup légal. Game Over."
-            game.running = False
+        if not game.game_over:
+            if game.inventory.objets_consommables.get('pas',0) <= 0:
+                game.turn_msg = "You ran out of steps! Game Over."
+                game.game_over = True
+                game.game_over_reason = "You ran out of steps."
 
         # draw
         draw_game(screen, game)
@@ -2014,4 +2224,4 @@ def game_loop():
 
 
 if __name__ == "__main__":
-    game_loop()      # starts de game 
+    game_loop()      # starts 
