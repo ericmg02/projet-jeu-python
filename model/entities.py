@@ -1,12 +1,9 @@
 """
-Blue Prince - simplified project implementation (single file).
-Place images in an 'images/' folder next to this file. Works even without images.
+- Blue Prince project -
 Controls (AZERTY):
-  Z = up, Q = left, S = down, D = right
-  SPACE = open door / move
+  Z = up, Q = left, S = down, D = right / keyboard arrows 
   ENTER = choose room when drawing
   R = spend a die to redraw options (during selection)
-  I = toggle inventory view
 """
 import pygame
 import random
