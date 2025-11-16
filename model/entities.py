@@ -317,7 +317,9 @@ ROWS = 9
 COLS = 5
 WINDOW_W = COLS*CELL_W + 400  
 WINDOW_H = ROWS*CELL_H + 80
-
+# pour l'antichambre : tout en haut au milieu
+GOAL_R = 0              # ligne du haut
+GOAL_C = COLS // 2      # même colonne que l'Entrance Hall
 MARGIN = 3
 
 
@@ -351,7 +353,11 @@ ROOM_CATALOG.extend([
                {'up': True, 'down': False, 'left': True, 'right': True},
                0, 0, None, "blue",
                {'on_enter': {'type': 'start'}}),
-
+    # antichambre
+    make_piece("Antechamber", "Antechamber_Icon.png",
+               {'up': False, 'down': True, 'left': False, 'right': False},
+               0, 3, None, "blue",
+               {'on_enter': {'type': 'goal'}}),
     ##
     make_piece("Attic", "Attic_Icon.png",
                {'up': False, 'down': True, 'left': False, 'right': False},
@@ -758,9 +764,9 @@ ROOM_CATALOG.extend([
 # multiplicity in initial deck (you can change)
 INITIAL_DECK = []
 for p in ROOM_CATALOG:
-    if p.nom == "Entrance Hall":
-        continue  # on ne le met pas dans la pioche: que pour la 1ere
-    # add multiple instances for balance: more commons than rares
+    # ni Entrance Hall ni Antechamber dans la pioche
+    if p.nom in ("Entrance Hall", "Antechamber"):
+        continue
     mult = 1 if p.degre_rarete>=3 else 3 if p.degre_rarete==2 else 5 if p.degre_rarete==1 else 7
     for _ in range(mult):
         INITIAL_DECK.append(p)
@@ -878,6 +884,12 @@ class Game:
         self.grid[start_r][start_c].piece = entrance_piece
         self.player_r = start_r
         self.player_c = start_c
+
+        # place Antechamber at fixed goal position (top middle)
+        goal_piece = next((p for p in ROOM_CATALOG if p.nom == "Antechamber"), None)
+        if goal_piece is not None:
+            self.grid[GOAL_R][GOAL_C].piece = goal_piece
+
         # mark the entrance cell doors initialization (all doors default None)
         self.inventory = Inventory()
         self.turn_msg = "Welcome to Blue Prince - simplified."
@@ -1873,7 +1885,7 @@ def draw_game(screen, game):
         pygame.draw.rect(screen, (50, 50, 60), (px, py, w, h), border_radius=10)
         pygame.draw.rect(screen, (200, 200, 220), (px, py, w, 30), border_radius=10)
         screen.blit(
-            BIG.render("Choose a room (ENTER)", True, (0, 0, 0)),
+            BIG.render("Choose a room (ENTER) or R to redraw (spend die)", True, (0, 0, 0)),
             (px + 8, py + 4)
         )
 
