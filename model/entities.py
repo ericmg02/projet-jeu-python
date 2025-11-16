@@ -344,6 +344,25 @@ def load_image(name, size=(CELL_W, CELL_H)):
 ROOM_CATALOG = []
 
 def make_piece(nom, imgfile, ports, cout, rare, zones_autorisees, couleur, obj):
+    """
+    Fabrique et retourne un objet `Piece` à partir des paramètres donnés.
+
+    Paramètres :
+        nom (str) : nom de la pièce (ex. "Bedroom").
+        imgfile (str) : nom de fichier de l’image associée à la pièce.
+        ports (dict[str, bool]) : présence de portes sur chaque côté
+            ('up', 'down', 'left', 'right').
+        cout (int) : coût en gemmes pour choisir cette pièce.
+        rare (int) : degré de rareté (utilisé pour le tirage pondéré).
+        zones_autorisees (str | iterable | None) : contrainte de placement
+            ('edge', 'corner', 'center', etc.) ou ensemble de zones autorisées.
+        couleur (str) : couleur / famille de la pièce (pour l’affichage ou certains effets).
+        obj (dict) : dictionnaire décrivant les effets spéciaux de la pièce
+            (ex. 'on_enter', 'on_draw').
+
+    Retour :
+        Piece : nouvelle instance de `Piece` prête à être ajoutée au catalogue.
+    """
     return Piece(nom, ports, cout, rare, zones_autorisees, couleur, obj, image_id=imgfile)
 
 # We'll define a small catalog with representative pieces
@@ -928,12 +947,35 @@ class Game:
         return 0<=r<ROWS and 0<=c<COLS
     
     def cell_ports(self, r, c):
+        """
+        Retourne les ports d’une cellule en tenant compte de la rotation.
+
+        Paramètres :
+            r (int) : indice de ligne de la cellule.
+            c (int) : indice de colonne de la cellule.
+
+        Retour :
+            dict[str, bool] : dictionnaire indiquant, pour chaque direction
+            ('up', 'down', 'left', 'right'), si un port est présent (True) ou non (False).
+            Si la cellule ne contient aucune pièce, tous les ports sont à False.
+        """
         cell = self.grid[r][c]
         if not cell.piece:
             return {'up':False,'down':False,'left':False,'right':False}
         return rotated_ports(cell.piece.ports, cell.rotation)
     
     def piece_ports_with_rotation(self, piece, rotation):
+        """
+        Calcule les ports d’une pièce après application d’une rotation.
+
+        Paramètres :
+            piece (Piece) : la pièce dont on veut connaître les ports.
+            rotation (int) : nombre de quarts de tour (0, 1, 2, 3) dans le sens horaire.
+
+        Retour :
+            dict[str, bool] : dictionnaire des ports ('up', 'down', 'left', 'right')
+            après rotation de la pièce.
+        """
         return rotated_ports(piece.ports, rotation)
     
     def fits_board_and_direction(self, piece, tr, tc, direction):
