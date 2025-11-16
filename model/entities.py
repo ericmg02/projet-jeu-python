@@ -1293,214 +1293,274 @@ class Game:
         return {'up':'down','down':'up','left':'right','right':'left'}[direction]
 
     def on_enter(self, cell):
-        """Applique les effets d’entrée d’une salle et événements aléatoires.
+            """Applique les effets d’entrée d’une salle et événements aléatoires.
 
-        Traite les effets 'on_enter' (pièces, nourriture, victoire, spawn d’objets
-        interactifs, etc.) et les trouvailles aléatoires, puis met à jour `turn_msg`.
+            Traite les effets 'on_enter' (pièces, nourriture, victoire, spawn d’objets
+            interactifs, etc.) et les trouvailles aléatoires, puis met à jour `turn_msg`.
 
-        Args:
-            cell: La cellule dans laquelle le joueur vient d’entrer.
+            Args:
+                cell: La cellule dans laquelle le joueur vient d’entrer.
 
-        Returns:
-            None
-        """
-        p = cell.piece
-        if not p:
-            return
-        
-        # Récupérer les ressources dispersées éventuellement présentes ici
-        pos = (self.player_r, self.player_c)
-        coins_here = self.scattered_coins.get(pos, 0)
-        gems_here = self.scattered_gems.get(pos, 0)
-        if coins_here or gems_here:
-            if coins_here:
-                self.inventory.ajouter_conso('pieces', coins_here)
-            if gems_here:
-                self.inventory.ajouter_conso('gemmes', gems_here)
-            self.turn_msg = f"You pick up {coins_here} coins and {gems_here} gems scattered here."
-            self.scattered_coins[pos] = 0
-            self.scattered_gems[pos] = 0
-
-        self.in_shop=False #par defaut on n'est pas dans une shop
-        self.shop_active=False
-        effects = p.obj.get('on_enter') if p.obj else None
-        if effects:
-            t = effects.get('type')
-            if t == 'coins':
-                amt = effects.get('amount', 0)
-
-                if cell.coins_collected:
-                    #on reprend pas les pièces à chaque passage
-                    self.turn_msg = f"Entered {p.nom}."
-                else:
-                    self.inventory.ajouter_conso('pieces', amt)
-                    self.turn_msg = f"Found {amt} coins!"
-                    cell.coins_collected = True
-
-            elif t == 'food':
-                amt = effects.get('amount', 0)
-
-                # bonus de nourriture appliqué une seule fois par salle
-                already_eaten = getattr(cell, "food_eaten", False)
-                if already_eaten:
-                    # on ne redonne pas de pas si on revient
-                    self.turn_msg = f"Entered {p.nom}."
-                else:
-                    self.inventory.ajouter_conso('pas', amt)
-                    self.turn_msg = f"Ate food and regains {amt} steps!"
-                    cell.food_eaten = True
-
-                #bonus appliqué une seule fois par salle
-                already_used = getattr(cell, "steps_bonus_used", False)
-                if already_used:
-                    #pas de bonus supplémentaire si on revient dans la même room
-                    self.turn_msg = f"Entered {p.nom}."
-                else:
-                    # On compense aussi le coût de déplacement (-1 pas)
-                    # pour que le gain net soit bien de `amt` pas.
-                    self.inventory.ajouter_conso('pas', amt + 1)
-                    self.turn_msg = f"You feel rested and gain {amt} extra steps."
-                    cell.steps_bonus_used = True
-
-            elif t=='steps_gain':
-                amt=effects.get('amount',0)
-                if cell.steps_bonus_used:
-                    self.turn_msg='f"Entered {p.nom}.'
-                else:
-                    self.inventory.ajouter_conso('pas',amt)
-                    self.turn_msg=f"You feel rested again {amt} extra steps."
-                    cell.steps_bonus_used=True
-
-            elif t=='lose_coin':
-                amt=effects.get('amount',1)
-                available=self.inventory.objets_consommables.get('pieces',0)
-                lost=min(amt,available)
-                if lost > 0:
-                    self.inventory.retirer('pieces',lost)
-                    self.turn_msg=f"You lose {lost} coin(s) in {p.nom}."
-                else:
-                    self.turn_msg=f"{p.nom} would take your coins, but you have none..."
-
-            elif t=='spread_gems_green':
-                #Patio: disperse 1 gemme dans chaque salle verte déjà posée
-                count=0
-                for rr in range(ROWS):
-                    for cc in range (COLS):
-                        if (rr,cc)==(self.player_r,self.player_c):
-                            continue
-                        other=self.grid[rr][cc]
-                        if other.piece and other.piece.couleur=='green':
-                            self.scattered_gems[(rr,cc)]+=1
-                            count+=1
-                self.turn_msg=f"You scatter gems into {count} green rooms."
-
-            elif t=='spread_coins':
-                #office: disperse 2 pièces dans chaque salle déjà posée
-                count=0
-                for rr in range (ROWS):
-                    for cc in range (COLS):
-                        if (rr,cc)==(self.player_r,self.player_c):
-                            continue
-                        other=self.grid[rr][cc]
-                        if other.piece:
-                            self.scattered_coins[(rr,cc)]+=2
-                            count+=1
-                self.turn_msg=f"You hide coins in {count} rooms across the house."
-
-            elif t == 'goal':
-                self.turn_msg = "You reached the Antechamber! You win!"
-                self.running = False
-            elif t == 'start':
-                self.turn_msg = "Back at the Entrance."
-            elif t == 'spawn':
-                what = effects.get('spawn')
-                if isinstance(cell.interactable, Interactable) and not cell.interactable.opened:                    
-                    return
-                if what == 'chest':
-                    cell.interactable = Chest()
-                elif what == 'casier':
-                    cell.interactable = Casier()
-                elif what == 'dig_site':
-                    cell.interactable = DigSite()
+            Returns:
+                None
+            """
+            p = cell.piece
+            if not p:
+                return
             
-                if cell.interactable:
-                    self.turn_msg = f"You found {cell.interactable.label()}! Press E to interact."
-            elif t=='detecteur_de_metaux':
-                self.inventory.ajouter_perm('detecteur_de_metaux')
-                self.turn_msg='You found a metal detector! Keys and coins will be easier to find.'
-            elif t=='kit_de_crochetage':
-                if not self.inventory.objets_permanents.get('kit_de_crochetage',False):
-                    self.inventory.ajouter_perm('kit_de_crochetage')
-                    self.turn_msg='You found a kit de crochetage! Level-1 doors can be opened for free.'
-                else:
-                    self.turn_msg='You already have a kit de crochetage.'
-            
-            elif t=='pelle':
-                if not self.inventory.objets_permanents.get('pelle',False):
-                    self.inventory.ajouter_perm('pelle')
-                    self.turn_msg='You found a shovel! You can now dig at dig sites.'
-                else:
-                    self.turn_msg='You already have a shovel.'
-            elif t=='marteau':
-                if not self.inventory.objets_permanents.get('marteau',False):
-                    self.inventory.ajouter_perm('marteau')
-                    self.turn_msg='You found a hammer! You can now break chests.'
-                else:
-                    self.turn_msg='You already have a hammer.'
+            # Récupérer les ressources dispersées éventuellement présentes ici
+            pos = (self.player_r, self.player_c)
+            coins_here = self.scattered_coins.get(pos, 0)
+            gems_here = self.scattered_gems.get(pos, 0)
+            if coins_here or gems_here:
+                if coins_here:
+                    self.inventory.ajouter_conso('pieces', coins_here)
+                if gems_here:
+                    self.inventory.ajouter_conso('gemmes', gems_here)
+                self.turn_msg = f"You pick up {coins_here} coins and {gems_here} gems scattered here."
+                self.scattered_coins[pos] = 0
+                self.scattered_gems[pos] = 0
 
-            elif t=='shop':
-                self.turn_msg='You entered the shop. Press E to trade.'
-                self.in_shop=True
-                self.shop_active=False
-                self.shop_index=0
+            self.in_shop = False   # par défaut on n'est pas dans une shop
+            self.shop_active = False
+            effects = p.obj.get('on_enter') if p.obj else None
 
+            if effects:
+                t = effects.get('type')
+
+                if t == 'coins':
+                    amt = effects.get('amount', 0)
+
+                    if cell.coins_collected:
+                        # on ne reprend pas les pièces à chaque passage
+                        self.turn_msg = f"Entered {p.nom}."
+                    else:
+                        self.inventory.ajouter_conso('pieces', amt)
+                        self.turn_msg = f"Found {amt} coins!"
+                        cell.coins_collected = True
+
+                elif t == 'food':
+                    amt = effects.get('amount', 0)
+
+                    # bonus de nourriture appliqué une seule fois par salle
+                    already_eaten = getattr(cell, "food_eaten", False)
+                    if already_eaten:
+                        # on ne redonne pas de pas si on revient
+                        self.turn_msg = f"Entered {p.nom}."
+                    else:
+                        self.inventory.ajouter_conso('pas', amt)
+                        self.turn_msg = f"Ate food and regains {amt} steps!"
+                        cell.food_eaten = True
+
+                    # bonus appliqué une seule fois par salle
+                    already_used = getattr(cell, "steps_bonus_used", False)
+                    if already_used:
+                        # pas de bonus supplémentaire si on revient dans la même room
+                        self.turn_msg = f"Entered {p.nom}."
+                    else:
+                        # On compense aussi le coût de déplacement (-1 pas)
+                        # pour que le gain net soit bien de `amt` pas.
+                        self.inventory.ajouter_conso('pas', amt + 1)
+                        self.turn_msg = f"You feel rested and gain {amt} extra steps."
+                        cell.steps_bonus_used = True
+
+                elif t == 'steps_gain':
+                    amt = effects.get('amount', 0)
+                    if cell.steps_bonus_used:
+                        self.turn_msg = f"Entered {p.nom}."
+                    else:
+                        self.inventory.ajouter_conso('pas', amt)
+                        self.turn_msg = f"You feel rested again {amt} extra steps."
+                        cell.steps_bonus_used = True
+
+                elif t == 'lose_coin':
+                    amt = effects.get('amount', 1)
+                    available = self.inventory.objets_consommables.get('pieces', 0)
+                    lost = min(amt, available)
+                    if lost > 0:
+                        self.inventory.retirer('pieces', lost)
+                        self.turn_msg = f"You lose {lost} coin(s) in {p.nom}."
+                    else:
+                        self.turn_msg = f"{p.nom} would take your coins, but you have none..."
+
+                elif t == 'spread_gems_green':
+                    # Patio: disperse 1 gemme dans chaque salle verte déjà posée
+                    count = 0
+                    for rr in range(ROWS):
+                        for cc in range(COLS):
+                            if (rr, cc) == (self.player_r, self.player_c):
+                                continue
+                            other = self.grid[rr][cc]
+                            if other.piece and other.piece.couleur == 'green':
+                                self.scattered_gems[(rr, cc)] += 1
+                                count += 1
+                    self.turn_msg = f"You scatter gems into {count} green rooms."
+
+                elif t == 'spread_coins':
+                    # Office: disperse 2 pièces dans chaque salle déjà posée
+                    count = 0
+                    for rr in range(ROWS):
+                        for cc in range(COLS):
+                            if (rr, cc) == (self.player_r, self.player_c):
+                                continue
+                            other = self.grid[rr][cc]
+                            if other.piece:
+                                self.scattered_coins[(rr, cc)] += 2
+                                count += 1
+                    self.turn_msg = f"You hide coins in {count} rooms across the house."
+
+                elif t == 'goal':
+                    self.turn_msg = "You reached the Antechamber! You win!"
+                    self.running = False
+
+                elif t == 'start':
+                    self.turn_msg = "Back at the Entrance."
+
+                elif t == 'spawn':
+                    what = effects.get('spawn')
+                    if isinstance(cell.interactable, Interactable) and not cell.interactable.opened:
+                        return
+                    if what == 'chest':
+                        cell.interactable = Chest()
+                    elif what == 'casier':
+                        cell.interactable = Casier()
+                    elif what == 'dig_site':
+                        cell.interactable = DigSite()
+
+                    if cell.interactable:
+                        self.turn_msg = f"You found {cell.interactable.label()}! Press E to interact."
+
+                elif t == 'detecteur_de_metaux':
+                    self.inventory.ajouter_perm('detecteur_de_metaux')
+                    self.turn_msg = 'You found a metal detector! Keys and coins will be easier to find.'
+
+                elif t == 'kit_de_crochetage':
+                    if not self.inventory.objets_permanents.get('kit_de_crochetage', False):
+                        self.inventory.ajouter_perm('kit_de_crochetage')
+                        self.turn_msg = 'You found a kit de crochetage! Level-1 doors can be opened for free.'
+                    else:
+                        self.turn_msg = 'You already have a kit de crochetage.'
+
+                elif t == 'pelle':
+                    if not self.inventory.objets_permanents.get('pelle', False):
+                        self.inventory.ajouter_perm('pelle')
+                        self.turn_msg = 'You found a shovel! You can now dig at dig sites.'
+                    else:
+                        self.turn_msg = 'You already have a shovel.'
+
+                elif t == 'marteau':
+                    if not self.inventory.objets_permanents.get('marteau', False):
+                        self.inventory.ajouter_perm('marteau')
+                        self.turn_msg = 'You found a hammer! You can now break chests.'
+                    else:
+                        self.turn_msg = 'You already have a hammer.'
+
+                elif t == 'shop':
+                    self.turn_msg = 'You entered the shop. Press E to trade.'
+                    self.in_shop = True
+                    self.shop_active = False
+                    self.shop_index = 0
+
+                #noveaux effets de room
+
+                elif t == 'set_gems':
+                    # Ballroom, Trophy Room : donner un paquet de gemmes
+                    amt = effects.get('amount', 0)
+                    self.inventory.ajouter_conso('gemmes', amt)
+                    self.turn_msg = f"You gain {amt} gems."
+
+                elif t == 'gemmes':
+                    # Wine Cellar : donne des gemmes
+                    amt = effects.get('amount', 0)
+                    self.inventory.ajouter_conso('gemmes', amt)
+                    self.turn_msg = f"You find {amt} gems in {p.nom}."
+
+                elif t == 'gain_keys':
+                    # Nook : donne des clés
+                    amt = effects.get('amount', 1)
+                    self.inventory.ajouter_conso('cles', amt)
+                    self.turn_msg = f"You find {amt} key(s) in {p.nom}."
+
+                elif t == 'gain_keys_mixed':
+                    # Music Room : mélange de clés + gemmes
+                    keys_amt = effects.get('keys', 1)
+                    gems_amt = effects.get('gems', 1)
+                    self.inventory.ajouter_conso('cles', keys_amt)
+                    self.inventory.ajouter_conso('gemmes', gems_amt)
+                    self.turn_msg = f"Music inspires you: +{keys_amt} key(s), +{gems_amt} gem(s)."
+
+                elif t == 'lose_half_steps':
+                    # Weight Room : tu perds la moitié de tes pas
+                    steps = self.inventory.objets_consommables.get('pas', 0)
+                    lost = steps // 2
+                    if lost > 0:
+                        self.inventory.retirer('pas', lost)
+                        self.turn_msg = f"The workout exhausts you, you lose {lost} steps."
+                    else:
+                        self.turn_msg = "You're already exhausted, nothing more to lose."
+
+                elif t == 'inc_find_objects':
+                    # Veranda : active la patte de lapin (meilleurs loots aléatoires)
+                    if not self.inventory.objets_permanents.get('patte_de_lapin', False):
+                        self.inventory.ajouter_perm('patte_de_lapin')
+                        self.turn_msg = "You feel lucky – it's easier to find items now."
+                    else:
+                        self.turn_msg = "Your lucky charm is already active."
+
+                elif t == 'attic_loot':
+                    # Attic : loot comme un coffre gratuit
+                    has_detector = self.inventory.objets_permanents.get('detecteur_de_metaux', False)
+                    loot = _roll_loot(LOOT_TABLE_CHEST, has_detector=has_detector)
+                    self.turn_msg = "You rummage through the attic."
+                    for name, amt in loot:
+                        self.inventory.ajouter_conso(name, amt)
+                        self.turn_msg += f"+{amt} {name}"
+
+                #fallback
+                else:
+                    self.turn_msg = f"Entered {p.nom}."
             else:
+                # Salle sans effet spécial
                 self.turn_msg = f"Entered {p.nom}."
-        else:
-             # Salle sans effet spécial
-            self.turn_msg = f"Entered {p.nom}."
 
-        # possibility to find gems or items randomly
-        # if detecteur_de_metaux increases keys/coins chance; patte_de_lapin increases chance to find items
-        # patte_de_lapin : augmente la probabilité de trouver quelque chose
-        # detecteur_de_metaux : biaise vers cles / pieces
-        base_find = random.random()
-        lapin_bonus = 0.05 if self.inventory.objets_permanents.get('patte_de_lapin') else 0.0
 
-        # Proba de base augmentée : 15 % + bonus éventuel
-        if base_find < 0.15 + lapin_bonus:
-            has_detector = self.inventory.objets_permanents.get('detecteur_de_metaux', False)
+            base_find = random.random()
+            lapin_bonus = 0.05 if self.inventory.objets_permanents.get('patte_de_lapin') else 0.0
 
-            # Est-ce que le joueur est vraiment à poil pour les portes ?
-            no_keys = self.inventory.objets_consommables.get('cles', 0) == 0
-            no_kit = not self.inventory.objets_permanents.get('kit_de_crochetage', False)
+            # Proba de base augmentée : 15 % + bonus éventuel
+            if base_find < 0.15 + lapin_bonus:
+                has_detector = self.inventory.objets_permanents.get('detecteur_de_metaux', False)
 
-            if no_keys and no_kit:
-                # Situation de galère : on force un pool très favorable aux clés
-                pool = ['cles', 'cles', 'cles', 'pieces', 'pas', 'gemmes']
-            else:
-                if has_detector:
-                    # higher probability of finding keys and pieces
-                    pool = ['gemmes', 'cles', 'cles', 'pieces', 'pieces', 'des', 'pas']
+                # Est-ce que le joueur est vraiment sans cle pour les portes ?
+                no_keys = self.inventory.objets_consommables.get('cles', 0) == 0
+                no_kit = not self.inventory.objets_permanents.get('kit_de_crochetage', False)
+
+                if no_keys and no_kit:
+                    #situation de galère : on force un pool très favorable aux clés
+                    pool = ['cles', 'cles', 'cles', 'pieces', 'pas', 'gemmes']
                 else:
-                    pool = ['gemmes', 'cles', 'des', 'pieces', 'pas']
+                    if has_detector:
+                        # higher probability of finding keys and pieces
+                        pool = ['gemmes', 'cles', 'cles', 'pieces', 'pieces', 'des', 'pas']
+                    else:
+                        pool = ['gemmes', 'cles', 'des', 'pieces', 'pas']
 
-            found = random.choice(pool)
-            if found == 'gemmes':
-                self.inventory.ajouter_conso('gemmes', 1)
-                self.turn_msg += " Found 1 gem."
-            elif found == 'cles':
-                self.inventory.ajouter_conso('cles', 1)
-                self.turn_msg += " Found 1 key."
-            elif found == 'des':
-                self.inventory.ajouter_conso('des', 1)
-                self.turn_msg += " Found 1 die."
-            elif found == 'pieces':
-                self.inventory.ajouter_conso('pieces', 5)
-                self.turn_msg += " Found some coins."
-            elif found == 'pas':
-                self.inventory.ajouter_conso('pas', 3)
-                self.turn_msg += " Found 3 steps."
+                found = random.choice(pool)
+                if found == 'gemmes':
+                    self.inventory.ajouter_conso('gemmes', 1)
+                    self.turn_msg += " Found 1 gem."
+                elif found == 'cles':
+                    self.inventory.ajouter_conso('cles', 1)
+                    self.turn_msg += " Found 1 key."
+                elif found == 'des':
+                    self.inventory.ajouter_conso('des', 1)
+                    self.turn_msg += " Found 1 die."
+                elif found == 'pieces':
+                    self.inventory.ajouter_conso('pieces', 5)
+                    self.turn_msg += " Found some coins."
+                elif found == 'pas':
+                    self.inventory.ajouter_conso('pas', 3)
+                    self.turn_msg += " Found 3 steps."
 
     def confirm_selection(self):
         """Confirme la pièce choisie, la pose et gère les effets associés."""
