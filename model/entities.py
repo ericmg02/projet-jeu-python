@@ -889,6 +889,8 @@ class Game:
         self.in_shop=False
         self.shop_active=False 
         self.shop_index=0
+        self.scattered_coins=defaultdict(int)
+        self.scattered_gems=defaultdict(int)
 
     def in_bounds(self, r,c):
         """Vérifie si des coordonnées sont dans les limites de la grille.
@@ -1230,6 +1232,20 @@ class Game:
         p = cell.piece
         if not p:
             return
+        
+        # Récupérer les ressources dispersées éventuellement présentes ici
+        pos = (self.player_r, self.player_c)
+        coins_here = self.scattered_coins.get(pos, 0)
+        gems_here = self.scattered_gems.get(pos, 0)
+        if coins_here or gems_here:
+            if coins_here:
+                self.inventory.ajouter_conso('pieces', coins_here)
+            if gems_here:
+                self.inventory.ajouter_conso('gemmes', gems_here)
+            self.turn_msg = f"You pick up {coins_here} coins and {gems_here} gems scattered here."
+            self.scattered_coins[pos] = 0
+            self.scattered_gems[pos] = 0
+
         self.in_shop=False #par defaut on n'est pas dans une shop
         self.shop_active=False
         effects = p.obj.get('on_enter') if p.obj else None
@@ -1270,6 +1286,52 @@ class Game:
                     self.inventory.ajouter_conso('pas', amt + 1)
                     self.turn_msg = f"You feel rested and gain {amt} extra steps."
                     cell.steps_bonus_used = True
+
+            elif t=='steps_gain':
+                amt=effects.get('amount',0)
+                if cell.steps_bonus_used:
+                    self.turn_msg='f"Entered {p.nom}.'
+                else:
+                    self.inventory.ajouter_conso('pas',amt)
+                    self.turn_msg=f"You feel rested again {amt} extra steps."
+                    cell.steps_bonus_used=True
+
+            elif t=='lose_coin':
+                amt=effects.get('amount',1)
+                available=self.inventory.objets_consommables.get('pieces',0)
+                lost=min(amt,available)
+                if lost > 0:
+                    self.inventory.retirer('pieces',lost)
+                    self.turn_msg=f"You lose {lost} coin(s) in {p.nom}."
+                else:
+                    self.turn_msg=f"{p.nom} would take your coins, but you have none..."
+
+            elif t=='spread_gems_green':
+                #Patio: disperse 1 gemme dans chaque salle verte déjà posée
+                count=0
+                for rr in range(ROWS):
+                    for cc in range (COLS):
+                        if (rr,cc)==(self.player_r,self.player_c):
+                            continue
+                        other=self.grid[rr][cc]
+                        if other.piece and other.piece.couleur=='green':
+                            self.scattered_gems[(rr,cc)]+=1
+                            count+=1
+                self.turn_msg=f"You scatter gems into {count} green rooms."
+
+            elif t=='spread_coins':
+                #office: disperse 2 pièces dans chaque salle déjà posée
+                count=0
+                for rr in range (ROWS):
+                    for cc in range (COLS):
+                        if (rr,cc)==(self.player_r,self.player_c):
+                            continue
+                        other=self.grid[rr][cc]
+                        if other.piece:
+                            self.scattered_coins[(rr,cc)]+=2
+                            count+=1
+                self.turn_msg=f"You hide coins in {count} rooms across the house."
+
             elif t == 'goal':
                 self.turn_msg = "You reached the Antechamber! You win!"
                 self.running = False
@@ -1435,6 +1497,13 @@ class Game:
                 if fires:
                     self.deck.extend(random.choices(fires, k=2))
                     self.turn_msg = "Furnace makes furnace-like rooms more common in the deck."
+
+            elif typ=='add_pool_rooms':
+                #ajoute d'autres pièces spéciales au deck
+                extra=[p for p in ROOM_CATALOG
+                       if p.nom in ('Chamber of Mirrors','Room 46')]
+                self.deck.extend(extra*2)
+                self.turn_msg="The pool reveals hidden rooms and adds them to the deck"
         else:
             self.turn_msg = f"Placed {choice.nom} at row {tr}, lock={lock_level}"
 
@@ -1933,4 +2002,4 @@ def game_loop():
 
 
 if __name__ == "__main__":
-    game_loop()      # arranca el juego normal
+    game_loop()      # starts de game 
