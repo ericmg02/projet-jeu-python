@@ -1648,7 +1648,7 @@ pygame.font.init()
 
 def load_item_image(name, size=(24, 24)):
     """Charge une icône d'objet depuis le dossier items."""
-    path = os.path.join("projet-jeu-python-main/model/items", name)
+    path = os.path.join("model/items/", name)
     try:
         img = pygame.image.load(path).convert_alpha()
         img = pygame.transform.smoothscale(img, size)
@@ -1873,7 +1873,7 @@ def draw_game(screen, game):
         pygame.draw.rect(screen, (50, 50, 60), (px, py, w, h), border_radius=10)
         pygame.draw.rect(screen, (200, 200, 220), (px, py, w, 30), border_radius=10)
         screen.blit(
-            BIG.render("Choose a room (ENTER) or R to redraw (spend die)", True, (0, 0, 0)),
+            BIG.render("Choose a room (ENTER)", True, (0, 0, 0)),
             (px + 8, py + 4)
         )
 
