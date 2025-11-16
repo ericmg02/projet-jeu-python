@@ -321,7 +321,7 @@ WINDOW_H = ROWS*CELL_H + 80
 MARGIN = 3
 
 
-IMAGES_FOLDER = "projet-jeu-python-main/model/pictures/rooms"
+IMAGES_FOLDER = "pictures/rooms/"
 
 pygame.init()
 FONT = pygame.font.SysFont("Arial", 16)
